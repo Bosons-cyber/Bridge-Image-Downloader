@@ -1,2 +1,2 @@
 # Bridge-Image-Downloader
-Web crawlers about bridges
+Web crawlers for bing
