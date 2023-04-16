@@ -71,7 +71,6 @@ def main():
             keyword_list.append(user_query)
         url_encoded_query = urllib.parse.quote(user_query, safe='')
         search_url = search_url.format(url_encoded_query, url_encoded_query, len(user_query), "{}", "{}")
-        print(search_url)
 
         query_directory = os.path.join("images", user_query)
         if not os.path.exists(query_directory):
