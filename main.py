@@ -55,13 +55,13 @@ def get_image_data(soup):
 
 def main():
     base_url = "https://www.bing.com"
-    search_url = "https://www.bing.com/images/search?q={}&form=AWIR&first={}&count={}"
 
     image_count = 0
     images_per_page = 35
     keyword_list = []
     next_turn = True
     while next_turn:
+        search_url = "https://www.bing.com/images/search?q={}&form=AWIR&first={}&count={}"
         images_to_download = int(input("Please enter the number of images you want to search: "))
         page_number = int(input("\nPlease enter the page from which you want to download(from 0): "))
 
