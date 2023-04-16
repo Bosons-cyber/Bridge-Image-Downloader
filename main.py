@@ -4,6 +4,7 @@ import time
 import http.client
 import ssl
 import urllib.request
+import socket
 from bs4 import BeautifulSoup
 
 
@@ -40,6 +41,8 @@ def download_image(url, save_path):
         print(f"Remote connection is closed: {url} -> {save_path}, reason: {e}")
     except ConnectionResetError as e:
         print(f"Connection reset by remote host: {url} -> {save_path}, reason: {e}")
+    except socket.timeout as e:
+        print(f"Download timeout: {url} -> {save_path}, reason: {e}")
 
 
 def get_image_data(soup):
@@ -58,6 +61,7 @@ def main():
 
     image_count = 0
     images_per_page = 35
+    socket.setdefaulttimeout(180)
     keyword_list = []
     next_turn = True
     while next_turn:
@@ -71,7 +75,7 @@ def main():
             keyword_list.append(user_query)
         user_query = user_query.replace(" ", "+")
         url_encoded_query = urllib.parse.quote(user_query, safe='')
-        search_url = search_url.format(url_encoded_query, page_number, images_per_page, "{}", "{}", "{}")
+        search_url = search_url.format(url_encoded_query, "{}", images_per_page, "{}", "{}", "{}")
         print(search_url)
 
         query_directory = os.path.join("images", user_query)
@@ -82,7 +86,7 @@ def main():
 
         while image_count < images_to_download:
             start_index = images_per_page * page_number
-            url = search_url.format(start_index, images_per_page)
+            url = search_url.format(start_index, "{}")
             soup = get_soup(url)
 
             image_data = get_image_data(soup)
