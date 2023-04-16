@@ -44,43 +44,76 @@ def download_image(url, save_path):
 
 def get_image_data(soup):
     image_containers = soup.find_all('a', {'class': 'iusc'})
-    image_data = [json.loads(container['m']) for container in image_containers]
+    image_data = []
+    for container in image_containers:
+        m_data = container.get('m')
+        if m_data:
+            data = json.loads(m_data)
+            image_data.append(data)
     return image_data
 
 
 def main():
     base_url = "https://www.bing.com"
-    search_url = "https://www.bing.com/images/search?q=Rahmen+br%C3%BCcken+Vorderansicht+Bilder&form=IACMSM&first={}&cw=1848&ch=969"
+    search_url = "https://www.bing.com/images/search?q={}&form=QBIR&sp=-1&pq={}&sc=8-{}&first={}&count={}"
 
     image_count = 0
-    images_to_download = 200
-    page_number = 1
+    images_per_page = 35
+    keyword_list = []
+    next_turn = True
+    while next_turn:
+        images_to_download = int(input("Please enter the number of images you want to search: "))
+        page_number = int(input("\nPlease enter the page from which you want to download(from 0): "))
 
-    downloaded_urls = set()
+        user_query = input("\nPlease enter the search keywords: ")
+        if user_query not in keyword_list:
+            image_count = 0
+            keyword_list.append(user_query)
+        url_encoded_query = urllib.parse.quote(user_query, safe='')
+        search_url = search_url.format(url_encoded_query, url_encoded_query, len(user_query), "{}", "{}")
+        print(search_url)
 
-    while image_count < images_to_download:
-        url = search_url.format(page_number)
-        soup = get_soup(url)
+        query_directory = os.path.join("images", user_query)
+        if not os.path.exists(query_directory):
+            os.makedirs(query_directory)
 
-        image_data = get_image_data(soup)
-        high_res_image_urls = [data["murl"] for data in image_data]
+        downloaded_urls = set()
 
-        for high_res_image_url in high_res_image_urls:
-            if image_count >= images_to_download:
+        while image_count < images_to_download:
+            start_index = images_per_page * page_number
+            url = search_url.format(start_index, images_per_page)
+            soup = get_soup(url)
+
+            image_data = get_image_data(soup)
+            high_res_image_urls = [urllib.parse.quote(data["murl"], safe=":/") for data in image_data]
+
+            for high_res_image_url in high_res_image_urls:
+                if image_count >= images_to_download:
+                    break
+
+                if high_res_image_url in downloaded_urls:
+                    print(f"Image downloaded, skipped: {high_res_image_url}")
+                    continue
+
+                save_path = os.path.join(query_directory, f"image_{image_count}.jpg")
+                download_image(high_res_image_url, save_path)
+                downloaded_urls.add(high_res_image_url)
+                image_count += 1
+                print(f"Downloaded images: {image_count}")
+
+            page_number += 1
+            time.sleep(1)
+
+        while True:
+            answer = input("\nDo you want to download more?(y/n) ")
+            if answer.lower() == 'y':
+                next_turn = True
                 break
-
-            if high_res_image_url in downloaded_urls:
-                print(f"Image downloaded, skipped: {high_res_image_url}")
-                continue
-
-            save_path = f"images/image_{image_count}.jpg"
-            download_image(high_res_image_url, save_path)
-            downloaded_urls.add(high_res_image_url)
-            image_count += 1
-            print(f"Downloaded images: {image_count}")
-
-        page_number += 1
-        time.sleep(1)
+            elif answer.lower() == 'n':
+                next_turn = False
+                break
+            else:
+                print("Invalid input, please re-enter.")
 
 
 if __name__ == '__main__':
