@@ -55,7 +55,7 @@ def get_image_data(soup):
 
 def main():
     base_url = "https://www.bing.com"
-    search_url = "https://www.bing.com/images/search?q={}&form=QBIR&sp=-1&pq={}&sc=8-{}&first={}&count={}"
+    search_url = "https://www.bing.com/images/search?q={}&form=AWIR&first={}&count={}"
 
     image_count = 0
     images_per_page = 35
@@ -69,8 +69,10 @@ def main():
         if user_query not in keyword_list:
             image_count = 0
             keyword_list.append(user_query)
+        user_query = user_query.replace(" ", "+")
         url_encoded_query = urllib.parse.quote(user_query, safe='')
-        search_url = search_url.format(url_encoded_query, url_encoded_query, len(user_query), "{}", "{}")
+        search_url = search_url.format(url_encoded_query, page_number, images_per_page, "{}", "{}", "{}")
+        print(search_url)
 
         query_directory = os.path.join("images", user_query)
         if not os.path.exists(query_directory):
