@@ -27,7 +27,7 @@ def get_soup(url):
 def download_image(url, save_path):
     if os.path.exists(save_path):
         print(f"File already exists, skip download:{save_path}")
-        return
+        return False
 
     context = create_unverified_ssl_context()
     try:
@@ -35,6 +35,7 @@ def download_image(url, save_path):
         with urllib.request.urlopen(req, context=context) as response, open(save_path, 'wb') as out_file:
             data = response.read()
             out_file.write(data)
+            return True
     except urllib.error.URLError as e:
         print(f"Failed to download image: {url} -> {save_path}, reason: {e}")
     except http.client.RemoteDisconnected as e:
@@ -43,6 +44,8 @@ def download_image(url, save_path):
         print(f"Connection reset by remote host: {url} -> {save_path}, reason: {e}")
     except socket.timeout as e:
         print(f"Download timeout: {url} -> {save_path}, reason: {e}")
+
+    return False
 
 
 def get_image_data(soup):
@@ -85,6 +88,7 @@ def main():
         downloaded_urls = set()
 
         while image_count < images_to_download:
+            new_images_downloaded = 0
             start_index = images_per_page * page_number
             url = search_url.format(start_index, "{}")
             soup = get_soup(url)
@@ -101,13 +105,19 @@ def main():
                     continue
 
                 save_path = os.path.join(query_directory, f"image_{image_count}.jpg")
-                download_image(high_res_image_url, save_path)
-                downloaded_urls.add(high_res_image_url)
-                image_count += 1
-                print(f"Downloaded images: {image_count}")
+                download_success = download_image(high_res_image_url, save_path)
+                if download_success:
+                    downloaded_urls.add(high_res_image_url)
+                    image_count += 1
+                    new_images_downloaded += 1
+                    print(f"Downloaded images: {image_count}")
 
             page_number += 1
             time.sleep(1)
+
+            if new_images_downloaded == 0:
+                print("No new images found. Stopping the download.")
+                break
 
         while True:
             answer = input("\nDo you want to download more?(y/n) ")
