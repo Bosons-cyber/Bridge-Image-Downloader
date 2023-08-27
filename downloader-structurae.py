@@ -20,22 +20,26 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 
 
-def get_bridge_soup(url):
-    driver = webdriver.Chrome(
-        service=Service(executable_path="C:\\Users\\Quantum\\Downloads\\Compressed\\chromedriver.exe"))
+def get_bridge_soup(driver, url, login_choice):
+    driver.set_window_size(1200, 800)
     driver.get(url)
 
+    if login_choice == 'y':
+        try:
+            login_button = driver.find_element(By.ID, "myStructuraeLoginBtn")
+            if login_button:
+                input("Please log in manually in your browser and press Enter to continue...")
+        except:
+            print("The login button was not found, you may have already logged in or the page structure has changed.")
+
     try:
-        WebDriverWait(driver, 30).until(
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "//div[@class='owl-item active center']"))
         )
     except TimeoutException:
-        print("Timeout: the images could not be loaded within 30 seconds.")
-        driver.quit()
-        return None
+        print("No image found for the bridge. Continuing to extract other information...")
 
     soup = BeautifulSoup(driver.page_source, 'html.parser')
-    driver.quit()
     return soup
 
 
@@ -127,12 +131,17 @@ def save_bridge_info(bridge_info, file_path):
 def main():
     base_url = "https://structurae.net"
     problematic_bridges = []
+    login_choice = input("Would you like to log in? (y/n): ").lower()
+    driver = webdriver.Chrome(
+        service=Service(executable_path="C:\\Users\\Quantum\\Downloads\\Compressed\\chromedriver.exe"))
+
     try:
         with open("bridges.txt", "r", encoding="utf-8") as file:
             bridge_names = [line.strip() for line in file]
     except FileNotFoundError:
         print("Please create a bridge.txt and add the name of the bridge to be processed line by line in it.")
         input("Press the Enter key to exit the program...")
+
     for bridge_name_to_download in bridge_names:
         print(f"Processing bridge: {bridge_name_to_download}")
         bridge_name_to_download = replace_german_chars(bridge_name_to_download)
@@ -147,14 +156,7 @@ def main():
             problematic_bridges.append(bridge_name_to_download)
             continue
 
-        page_soup = get_bridge_soup(bridge_url)
-        if page_soup is None:
-            print(f"Failed to load the page for bridge: {bridge_name_to_download}")
-            problematic_bridges.append(bridge_name_to_download)
-            continue
-
-        image_data = get_image_data(page_soup)
-
+        page_soup = get_bridge_soup(driver, bridge_url, login_choice)
         bridge_info = get_bridge_info(page_soup)
         if bridge_info["Bridge Name"] is None:
             bridge_name = bridge_info.get('Bezeichnung', 'Unknown_bridge')
@@ -166,16 +168,22 @@ def main():
 
         save_bridge_info(bridge_info, os.path.join(bridge_folder, 'bridge_info.txt'))
 
-        high_res_image_urls = [data["murl"] for data in image_data]
-
-        for idx, high_res_image_url in enumerate(high_res_image_urls):
-            save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
-            download_image(high_res_image_url, save_path)
-            print(f"Downloaded image: {save_path}")
+        image_data = get_image_data(page_soup)
+        if not image_data:
+            print(f"Can't find the image: {bridge_name_to_download}")
+            problematic_bridges.append(bridge_name_to_download)
+        else:
+            high_res_image_urls = [data["murl"] for data in image_data]
+            for idx, high_res_image_url in enumerate(high_res_image_urls):
+                save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
+                download_image(high_res_image_url, save_path)
+                print(f"Downloaded image: {save_path}")
 
         time.sleep(1)
     print(f"Problematic bridges : {problematic_bridges}")
     input("Press the Enter key to exit the program...")
+
+    driver.quit()
 
 
 if __name__ == "__main__":
