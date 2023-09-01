@@ -20,27 +20,55 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 
 
-def get_bridge_soup(driver, url, login_choice):
+def get_bridge_info_soup(driver, url):
     driver.set_window_size(1200, 800)
     driver.get(url)
 
-    if login_choice == 'y':
-        try:
-            login_button = driver.find_element(By.ID, "myStructuraeLoginBtn")
-            if login_button:
-                input("Please log in manually in your browser and press Enter to continue...")
-        except:
-            print("The login button was not found, you may have already logged in or the page structure has changed.")
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    return soup
+
+
+def get_bridge_media_soup(driver, url):
+    media_url = f"{url}/medien"
+    driver.set_window_size(1200, 800)
+    driver.get(media_url)
 
     try:
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//div[@class='owl-item active center']"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, "a.imageThumbLink_2"))
         )
     except TimeoutException:
         print("No image found for the bridge. Continuing to extract other information...")
 
     soup = BeautifulSoup(driver.page_source, 'html.parser')
     return soup
+
+
+def choose_bridge_type():
+    bridge_types = {
+        "Balkenbrücken": "balkenbruecken",
+        "Bewegliche Brücken": "bewegliche-bruecken",
+        "Bogenbrücken": "bogenbruecken",
+    }
+    print("Please choose a bridge type:")
+    for idx, (name, _) in enumerate(bridge_types.items(), 1):
+        print(f"{idx}. {name}")
+    choice = int(input("Enter the number of your choice: "))
+    chosen_type = list(bridge_types.values())[choice - 1]
+    return chosen_type
+
+
+def choose_search_type():
+    bridge_search_types = {
+        "Name": "name",
+        "Type": "type",
+    }
+    print("Please choose a search type:")
+    for idx, (name, _) in enumerate(bridge_search_types.items(), 1):
+        print(f"{idx}. {name}")
+    choice = int(input("Enter the number of your choice: "))
+    chosen_type = list(bridge_search_types.values())[choice - 1]
+    return chosen_type
 
 
 def download_image(url, save_path):
@@ -57,17 +85,64 @@ def download_image(url, save_path):
         print(f"Failed to download image: {url} -> {save_path}, reason: {e}")
 
 
+def download_images_by_bridge_type(driver, bridge_type, num_bridges, country_code=None):
+    base_url = "https://structurae.net"
+    if country_code:
+        bridge_type_url = f"{base_url}/de/bauwerke/bruecken/{bridge_type}/liste?filtercountry={country_code}"
+    else:
+        bridge_type_url = f"{base_url}/de/bauwerke/bruecken/{bridge_type}/liste"
+    driver.get(bridge_type_url)
+
+    try:
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "td > a.listableleft"))
+        )
+    except TimeoutException:
+        print("Timeout: Unable to locate the bridge links.")
+        return
+
+    bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
+    bridge_urls = [link.get_attribute("href") for link in bridge_links[:num_bridges]]
+
+    for idx, bridge_url in enumerate(bridge_urls, 1):
+        print(f"Processing bridge {idx} of {num_bridges}...")
+
+        bridge_media_soup = get_bridge_media_soup(driver, bridge_url)
+        image_data = get_image_data(bridge_media_soup)
+
+        bridge_info_soup = get_bridge_info_soup(driver, bridge_url)
+        bridge_info = get_bridge_info(bridge_info_soup)
+
+        bridge_name = bridge_info.get("Bridge Name", "Unknown_bridge")
+        bridge_folder = os.path.join("images", bridge_name)
+        if not os.path.exists(bridge_folder):
+            os.makedirs(bridge_folder)
+
+        save_bridge_info(bridge_info, os.path.join(bridge_folder, 'bridge_info.txt'))
+
+        high_res_image_urls = [data["murl"] for data in image_data]
+        for idx, high_res_image_url in enumerate(high_res_image_urls):
+            save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
+            download_image(high_res_image_url, save_path)
+            print(f"Downloaded image: {save_path}")
+
+        time.sleep(1)
+
+    print("All bridges processed!")
+
+
 def get_image_data(soup):
-    image_containers = soup.find_all('div',
-                                     {'class': ['owl-item cloned', 'owl-item active center', 'owl-item cloned active']})
+    image_entries = soup.find_all('div', class_='jg-entry')
 
     image_data = []
-    for container in image_containers:
-        img_tag = container.find('img', {'itemprop': 'photo'})
-        if img_tag:
-            src = img_tag.get('src')
-            if src and src.startswith("http"):
-                image_data.append({"murl": src})
+    for entry in image_entries:
+        link = entry.find('a', class_='imageThumbLink_2')
+        if link:
+            img = link.find('img')
+            if img:
+                src = img.get('src')
+                if src and src.startswith("http"):
+                    image_data.append({"murl": src})
 
     return image_data
 
@@ -129,60 +204,88 @@ def save_bridge_info(bridge_info, file_path):
 
 
 def main():
-    base_url = "https://structurae.net"
+    base_url = "https://structurae.net/de/"
     problematic_bridges = []
     login_choice = input("Would you like to log in? (y/n): ").lower()
     driver = webdriver.Chrome(
-        service=Service(executable_path="C:\\Users\\Quantum\\Downloads\\Compressed\\chromedriver.exe"))
+        service=Service(executable_path="C:\\Users\\Quantum\\Bridge-Image-Downloader\\chromedriver-win64"
+                                        "\\chromedriver.exe"))
 
-    try:
-        with open("bridges.txt", "r", encoding="utf-8") as file:
-            bridge_names = [line.strip() for line in file]
-    except FileNotFoundError:
-        print("Please create a bridge.txt and add the name of the bridge to be processed line by line in it.")
-        input("Press the Enter key to exit the program...")
+    if login_choice == 'y':
+        driver.set_window_size(1200, 800)
+        driver.get(base_url)
+        try:
+            login_button = driver.find_element(By.ID, "myStructuraeLoginBtn")
+            if login_button:
+                input("Please log in manually in your browser and press Enter to continue...")
+        except:
+            print("The login button was not found, you may have already logged in or the page structure has changed.")
 
-    for bridge_name_to_download in bridge_names:
-        print(f"Processing bridge: {bridge_name_to_download}")
-        bridge_name_to_download = replace_german_chars(bridge_name_to_download)
-        formatted_bridge_name = format_bridge_name_for_url(bridge_name_to_download)
+    chosen_type = choose_search_type()
+    if chosen_type == 'name':
+        try:
+            with open("bridges.txt", "r", encoding="utf-8") as file:
+                bridge_names = [line.strip() for line in file]
+        except FileNotFoundError:
+            print("Please create a bridge.txt and add the name of the bridge to be processed line by line in it.")
+            input("Press the Enter key to exit the program...")
 
-        bridge_url = f"{base_url}/de/bauwerke/{formatted_bridge_name}"
+        for bridge_name_to_download in bridge_names:
+            print(f"Processing bridge: {bridge_name_to_download}")
+            bridge_name_to_download = replace_german_chars(bridge_name_to_download)
+            formatted_bridge_name = format_bridge_name_for_url(bridge_name_to_download)
 
-        response = requests.get(bridge_url)
+            bridge_url = f"{base_url}/de/bauwerke/{formatted_bridge_name}"
 
-        if response.status_code != 200:
-            print(f"Bridge not found: {bridge_name_to_download}")
-            problematic_bridges.append(bridge_name_to_download)
-            continue
+            response = requests.get(bridge_url)
 
-        page_soup = get_bridge_soup(driver, bridge_url, login_choice)
-        bridge_info = get_bridge_info(page_soup)
-        if bridge_info["Bridge Name"] is None:
-            bridge_name = bridge_info.get('Bezeichnung', 'Unknown_bridge')
+            if response.status_code != 200:
+                print(f"Bridge not found: {bridge_name_to_download}")
+                problematic_bridges.append(bridge_name_to_download)
+                continue
+
+            bridge_info_soup = get_bridge_info_soup(driver, bridge_url)
+            bridge_info = get_bridge_info(bridge_info_soup)
+            if bridge_info["Bridge Name"] is None:
+                bridge_name = bridge_info.get('Bezeichnung', 'Unknown_bridge')
+            else:
+                bridge_name = bridge_info["Bridge Name"]
+            bridge_folder = os.path.join("images", bridge_name)
+            if not os.path.exists(bridge_folder):
+                os.makedirs(bridge_folder)
+
+            save_bridge_info(bridge_info, os.path.join(bridge_folder, 'bridge_info.txt'))
+
+            bridge_media_soup = get_bridge_media_soup(driver, bridge_url)
+            image_data = get_image_data(bridge_media_soup)
+            if not image_data:
+                print(f"Can't find the image: {bridge_name_to_download}")
+                problematic_bridges.append(bridge_name_to_download)
+            else:
+                high_res_image_urls = [data["murl"] for data in image_data]
+                for idx, high_res_image_url in enumerate(high_res_image_urls):
+                    save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
+                    download_image(high_res_image_url, save_path)
+                    print(f"Downloaded image: {save_path}")
+
+            time.sleep(1)
+        print(f"Problematic bridges : {problematic_bridges}")
+    elif chosen_type == 'type':
+        bridge_type = choose_bridge_type()
+        num_bridges = int(input("How many bridges do you want to download? "))
+        country_mode = input("Do you want to search by country?(login needed)(y/n): ").lower()
+        if country_mode:
+            country_code = input(
+                "Please enter the country code (e.g., DE for Germany, BE for Belgium): ").strip().upper()
+            download_images_by_bridge_type(driver, bridge_type, num_bridges, country_code)
         else:
-            bridge_name = bridge_info["Bridge Name"]
-        bridge_folder = os.path.join("images", bridge_name)
-        if not os.path.exists(bridge_folder):
-            os.makedirs(bridge_folder)
+            download_images_by_bridge_type(driver, bridge_type, num_bridges, login_choice)
+    else:
+        print("Invalid mode selected. Exiting.")
+        time.sleep(5)
+        return
 
-        save_bridge_info(bridge_info, os.path.join(bridge_folder, 'bridge_info.txt'))
-
-        image_data = get_image_data(page_soup)
-        if not image_data:
-            print(f"Can't find the image: {bridge_name_to_download}")
-            problematic_bridges.append(bridge_name_to_download)
-        else:
-            high_res_image_urls = [data["murl"] for data in image_data]
-            for idx, high_res_image_url in enumerate(high_res_image_urls):
-                save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
-                download_image(high_res_image_url, save_path)
-                print(f"Downloaded image: {save_path}")
-
-        time.sleep(1)
-    print(f"Problematic bridges : {problematic_bridges}")
     input("Press the Enter key to exit the program...")
-
     driver.quit()
 
 
