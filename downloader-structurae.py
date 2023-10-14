@@ -158,12 +158,24 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
     global BASE_URL
 
     bridge_type_url = get_full_bridge_url(country_code, bridge_type, base_url)
-    navigate_and_wait(driver, bridge_type_url)
 
-    bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
-    bridge_urls = [link.get_attribute("href") for link in bridge_links[:num_bridges]]
+    all_bridge_urls = []
 
-    for idx, bridge_url_de in enumerate(bridge_urls, 1):
+    page = 0
+    while len(all_bridge_urls) < num_bridges:
+        current_page_url = bridge_type_url if page == 0 else f"{bridge_type_url}?min={page * 100}"
+        navigate_and_wait(driver, current_page_url)
+
+        bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
+        if not bridge_links:
+            break
+
+        bridge_urls = [link.get_attribute("href") for link in bridge_links]
+        all_bridge_urls.extend(bridge_urls)
+
+        page += 1
+
+    for idx, bridge_url_de in enumerate(all_bridge_urls[:num_bridges], 1):
         print(f"Processing bridge {idx} of {num_bridges}...")
 
         bridge_media_soup = navigate_and_wait(driver, bridge_url_de)
