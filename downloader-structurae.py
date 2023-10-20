@@ -1,4 +1,5 @@
 import os
+import re
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -40,7 +41,8 @@ def get_full_bridge_url(country_code, bridge_type, base_usl):
 
 
 def create_bridge_folder(bridge_name):
-    bridge_folder = os.path.join(IMAGE_FOLDER, bridge_name)
+    clean_name = clean_folder_name(bridge_name)
+    bridge_folder = os.path.join(IMAGE_FOLDER, clean_name)
     if not os.path.exists(bridge_folder):
         os.makedirs(bridge_folder)
     return bridge_folder
@@ -97,6 +99,14 @@ def choose_search_type():
     return chosen_type
 
 
+def clean_folder_name(folder_name):
+    """
+    清理文件夹名，移除或替换Windows中不允许的字符。
+    """
+    # 将非法字符替换为下划线
+    return re.sub(r'[<>:"/\\|?*]', '_', folder_name)
+
+
 def download_images_by_bridge_name(driver, bridge_names, base_url):
     problematic_bridges = []
     global BASE_URL
@@ -121,7 +131,8 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
             bridge_name = bridge_info_de.get('Bezeichnung', 'Unknown_bridge')
         else:
             bridge_name = bridge_info_de["Bridge Name"]
-        bridge_folder = os.path.join("images", bridge_name)
+        clean_name = clean_folder_name(bridge_name)
+        bridge_folder = os.path.join("images", clean_name)
         if not os.path.exists(bridge_folder):
             os.makedirs(bridge_folder)
 
@@ -160,13 +171,21 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
     bridge_type_url = get_full_bridge_url(country_code, bridge_type, base_url)
 
     all_bridge_urls = []
-
     page = 0
+
     while len(all_bridge_urls) < num_bridges:
         current_page_url = bridge_type_url if page == 0 else f"{bridge_type_url}?min={page * 100}"
         navigate_and_wait(driver, current_page_url)
 
-        bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "td > a.listableleft"))
+            )
+            bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
+        except TimeoutException:
+            print("Timed out waiting for page to load")
+            return
+
         if not bridge_links:
             break
 
@@ -177,9 +196,6 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
 
     for idx, bridge_url_de in enumerate(all_bridge_urls[:num_bridges], 1):
         print(f"Processing bridge {idx} of {num_bridges}...")
-
-        bridge_media_soup = navigate_and_wait(driver, bridge_url_de)
-        image_data = get_image_data(bridge_media_soup)
 
         bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
         bridge_info_de = get_bridge_info(bridge_info_soup_de)
@@ -193,6 +209,9 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
         bridge_info_en = get_bridge_info(bridge_info_soup_en)
 
         save_bridge_info(bridge_info_en, os.path.join(bridge_folder, f"bridge_info_en.txt"))
+
+        bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
+        image_data = get_image_data(bridge_media_soup)
 
         high_res_image_urls = image_data
         for idx, high_res_image_url in enumerate(high_res_image_urls):
@@ -316,8 +335,7 @@ def main():
     base_url = BASE_URL + base_url_suffix
     login_choice = input("Would you like to log in? (y/n): ").lower()
     driver = webdriver.Chrome(
-        service=Service(executable_path="C:\\Users\\Quantum\\Bridge-Image-Downloader\\chromedriver-win64"
-                                        "\\chromedriver.exe"))
+        service=Service(executable_path="chromedriver.exe"))
 
     if login_choice == 'y':
         driver.set_window_size(1200, 800)
