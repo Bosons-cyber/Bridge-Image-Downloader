@@ -1,3 +1,4 @@
+import csv
 import os
 import re
 from selenium import webdriver
@@ -73,17 +74,11 @@ def get_bridge_media_soup(driver, url):
 
 
 def choose_bridge_type():
-    bridge_types = {
-        "Balkenbrücken": "balkenbruecken",
-        "Bewegliche Brücken": "bewegliche-bruecken",
-        "Bogenbrücken": "bogenbruecken",
-    }
-    print("Please choose a bridge type:")
-    for idx, (name, _) in enumerate(bridge_types.items(), 1):
-        print(f"{idx}. {name}")
-    choice = int(input("Enter the number of your choice: "))
-    chosen_type = list(bridge_types.values())[choice - 1]
-    return chosen_type
+
+    text = input("Please enter the name of the bridge type: ")
+    typename = format_text(text)
+
+    return typename
 
 
 def choose_search_type():
@@ -100,10 +95,6 @@ def choose_search_type():
 
 
 def clean_folder_name(folder_name):
-    """
-    清理文件夹名，移除或替换Windows中不允许的字符。
-    """
-    # 将非法字符替换为下划线
     return re.sub(r'[<>:"/\\|?*]', '_', folder_name)
 
 
@@ -111,10 +102,12 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
     problematic_bridges = []
     global BASE_URL
 
+    summary_csv_path_en = "images/summary_en.csv"
+    summary_csv_path_de = "images/summary_de.csv"
+
     for bridge_name_to_download in bridge_names:
         print(f"Processing bridge: {bridge_name_to_download}")
-        bridge_name_to_download = replace_german_chars(bridge_name_to_download)
-        formatted_bridge_name = format_bridge_name_for_url(bridge_name_to_download)
+        formatted_bridge_name = format_text(bridge_name_to_download)
 
         bridge_url_de = f"{base_url}/bauwerke/{formatted_bridge_name}"
 
@@ -136,13 +129,13 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
         if not os.path.exists(bridge_folder):
             os.makedirs(bridge_folder)
 
-        save_bridge_info(bridge_info_de, os.path.join(bridge_folder, f"bridge_info_de.txt"))
+        append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de)
 
         bridge_url_en = get_en_link(bridge_info_soup_de)
         bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
         bridge_info_en = get_bridge_info(bridge_info_soup_en)
 
-        save_bridge_info(bridge_info_en, os.path.join(bridge_folder, f"bridge_info_en.txt"))
+        append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en)
 
         bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
         image_data = get_image_data(bridge_media_soup)
@@ -167,6 +160,9 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
 
 def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code=None):
     global BASE_URL
+
+    summary_csv_path_en = "images/summary_en.csv"
+    summary_csv_path_de = "images/summary_de.csv"
 
     bridge_type_url = get_full_bridge_url(country_code, bridge_type, base_url)
 
@@ -194,21 +190,26 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
 
         page += 1
 
-    for idx, bridge_url_de in enumerate(all_bridge_urls[:num_bridges], 1):
-        print(f"Processing bridge {idx} of {num_bridges}...")
-
+    downloaded_count = 0
+    for idx, bridge_url_de in enumerate(all_bridge_urls, 1):
         bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
         bridge_info_de = get_bridge_info(bridge_info_soup_de)
         bridge_name = bridge_info_de.get("Bridge Name", "Unknown_bridge")
-        bridge_folder = create_bridge_folder(bridge_name)
 
-        save_bridge_info(bridge_info_de, os.path.join(bridge_folder, f"bridge_info_de.txt"))
+        if os.path.exists(f"images/{bridge_name}"):
+            print(f"Folder for bridge {bridge_name} already exists. Skipping...")
+            continue
+
+        print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
+
+        bridge_folder = create_bridge_folder(bridge_name)
+        append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de)
 
         bridge_url_en = get_en_link(bridge_info_soup_de)
         bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
         bridge_info_en = get_bridge_info(bridge_info_soup_en)
 
-        save_bridge_info(bridge_info_en, os.path.join(bridge_folder, f"bridge_info_en.txt"))
+        append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en)
 
         bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
         image_data = get_image_data(bridge_media_soup)
@@ -224,6 +225,10 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
                 download_image(download_link, save_path)
                 print(f"Downloaded image: {save_path}")
         time.sleep(1)
+
+        downloaded_count += 1
+        if downloaded_count >= num_bridges:
+            break
 
     print("All bridges processed!")
 
@@ -273,8 +278,10 @@ def download_image(url, save_path):
         print(f"Failed to download image: {url} -> {save_path}, reason: {e}")
 
 
-def format_bridge_name_for_url(bridge_name):
-    return bridge_name.lower().replace(" ", "-")
+def format_text(text):
+    name = text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss").replace("Ä", "AE").replace("Ö", "Oe").replace("Ü", "Ue")
+    name = name.replace(" ", "-").lower()
+    return name
 
 
 def get_bridge_info(soup):
@@ -306,36 +313,63 @@ def get_bridge_info(soup):
     return bridge_info
 
 
-def replace_german_chars(text):
-    replacements = {
-        'ä': 'ae',
-        'ö': 'oe',
-        'ü': 'ue',
-        'ß': 'ss',
-        'Ä': 'Ae',
-        'Ö': 'Oe',
-        'Ü': 'Ue'
-    }
-
-    for german_char, replacement in replacements.items():
-        text = text.replace(german_char, replacement)
-
-    return text
+def get_existing_columns(file_path):
+    if not os.path.exists(file_path):
+        return []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        reader = csv.reader(f, delimiter=';')
+        headers = next(reader, None)
+        if headers:
+            return headers
+    return []
 
 
-def save_bridge_info(bridge_info, file_path):
-    with open(file_path, 'w', encoding='utf-8') as f:
-        for key, value in bridge_info.items():
-            f.write(f"{key}: {value}\n")
+def append_bridge_info_to_csv(bridge_info, file_path):
+    folder_path = os.path.dirname(file_path)
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f, delimiter=';')
+            writer.writerow(list(bridge_info.keys()))
+
+    existing_columns = get_existing_columns(file_path)
+    all_columns = set(existing_columns) | set(bridge_info.keys())
+
+    if len(all_columns) > len(existing_columns):
+        temp_data = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for row in csv.reader(f):
+                while len(row) < len(all_columns):
+                    row.append("N/A")
+                temp_data.append(row)
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f, delimiter=';')
+            writer.writerow(list(existing_columns) + list(all_columns - set(existing_columns)))
+            writer.writerows(temp_data)
+
+    bridge_data = [bridge_info.get(column, "N/A") for column in existing_columns]
+
+    with open(file_path, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f, delimiter=';')
+        writer.writerow(bridge_data)
 
 
 def main():
     base_url_suffix = '/de'
     global BASE_URL
     base_url = BASE_URL + base_url_suffix
+
+    try:
+        driver = webdriver.Chrome(
+            service=Service(executable_path="chromedriver.exe"))
+    except Exception as e:
+        print(e)
+        return
+
     login_choice = input("Would you like to log in? (y/n): ").lower()
-    driver = webdriver.Chrome(
-        service=Service(executable_path="chromedriver.exe"))
 
     if login_choice == 'y':
         driver.set_window_size(1200, 800)
@@ -371,9 +405,9 @@ def main():
         time.sleep(5)
         return
 
-    input("Press the Enter key to exit the program...")
     driver.quit()
 
 
 if __name__ == "__main__":
     main()
+    input("Press the Enter key to exit the program...")
