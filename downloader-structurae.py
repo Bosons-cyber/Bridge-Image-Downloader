@@ -74,7 +74,6 @@ def get_bridge_media_soup(driver, url):
 
 
 def choose_bridge_type():
-
     text = input("Please enter the name of the bridge type: ")
     typename = format_text(text)
 
@@ -279,7 +278,8 @@ def download_image(url, save_path):
 
 
 def format_text(text):
-    name = text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss").replace("Ä", "AE").replace("Ö", "Oe").replace("Ü", "Ue")
+    name = text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss").replace("Ä", "AE").replace(
+        "Ö", "Oe").replace("Ü", "Ue")
     name = name.replace(" ", "-").lower()
     return name
 
@@ -293,8 +293,10 @@ def get_bridge_info(soup):
         'class': 'aligned-tables'})
     geographic_info_table = soup.find('div', {'class': 'js-acordion-body', 'id': 'geographic'}).find('table', {
         'class': 'aligned-tables'})
+    technical_info_table = soup.find('div', {'class': 'js-acordion-body', 'id': 'technical'}).find('table', {
+        'class': 'aligned-tables'})
 
-    for info_table in [general_info_table, typology_info_table, geographic_info_table]:
+    for info_table in [general_info_table, typology_info_table, geographic_info_table, technical_info_table]:
         if info_table:
             rows = info_table.find_all('tr')
             for row in rows:
@@ -313,15 +315,19 @@ def get_bridge_info(soup):
     return bridge_info
 
 
+def clean_value(value):
+    if isinstance(value, str):
+        return value.replace('\n', ' ').replace('\r', ' ').strip()
+    return value
+
+
 def get_existing_columns(file_path):
-    if not os.path.exists(file_path):
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         return []
     with open(file_path, 'r', encoding='utf-8') as f:
         reader = csv.reader(f, delimiter=';')
         headers = next(reader, None)
-        if headers:
-            return headers
-    return []
+        return headers if headers else []
 
 
 def append_bridge_info_to_csv(bridge_info, file_path):
@@ -329,28 +335,33 @@ def append_bridge_info_to_csv(bridge_info, file_path):
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
-    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+    existing_columns = get_existing_columns(file_path)
+    all_columns = list(existing_columns) + [col for col in bridge_info.keys() if col not in existing_columns]
+
+    if not existing_columns:
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f, delimiter=';')
-            writer.writerow(list(bridge_info.keys()))
+            writer.writerow(all_columns)
 
-    existing_columns = get_existing_columns(file_path)
-    all_columns = set(existing_columns) | set(bridge_info.keys())
-
-    if len(all_columns) > len(existing_columns):
+    elif len(all_columns) > len(existing_columns):
         temp_data = []
         with open(file_path, 'r', encoding='utf-8') as f:
-            for row in csv.reader(f):
-                while len(row) < len(all_columns):
+            reader = csv.reader(f, delimiter=';')
+            next(reader, None)
+            for row in reader:
+                while len(row) < len(existing_columns):
                     row.append("N/A")
                 temp_data.append(row)
 
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f, delimiter=';')
-            writer.writerow(list(existing_columns) + list(all_columns - set(existing_columns)))
-            writer.writerows(temp_data)
+            writer.writerow(all_columns)
+            for row in temp_data:
+                row.extend("N/A" for _ in range(len(all_columns) - len(row)))
+                writer.writerow(row)
 
-    bridge_data = [bridge_info.get(column, "N/A") for column in existing_columns]
+    cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}
+    bridge_data = [cleaned_bridge_info.get(column, "N/A") for column in all_columns]
 
     with open(file_path, 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f, delimiter=';')
