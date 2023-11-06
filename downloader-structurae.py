@@ -284,33 +284,54 @@ def format_text(text):
     return name
 
 
+def extract_table_data(table):
+    data = {}
+    rows = table.find_all('tr')
+    for row in rows:
+        header = row.find('th')
+        value = row.find('td')
+        if header and value:
+            data[header.text.strip()] = value.text.strip()
+    return data
+
+
+def extract_technical_data(technical_div, bridge_info):
+    tab_bodies = technical_div.find_all('div', class_='tabbody')
+
+    for tab_body in tab_bodies:
+        category_prefix = tab_body.find_previous('h3').text.strip()
+        table = tab_body.find('table')
+        if table:
+            rows = table.find_all('tr')
+            for row in rows:
+                cells = row.find_all(['th', 'td'])
+                if len(cells) > 1:
+                    if cells[0].name == 'td' and not cells[0].text.strip():
+                        header = cells[1].text.strip()
+                        value = cells[2].text.strip() if len(cells) > 2 else ""
+                    else:
+                        header = cells[0].text.strip()
+                        value = cells[1].text.strip()
+                    full_key = f"{category_prefix} - {header}"
+                    bridge_info[full_key] = value
+
+
 def get_bridge_info(soup):
     bridge_info = {}
 
-    general_info_table = soup.find('div', {'class': 'js-acordion-body', 'id': 'general'}).find('table', {
-        'class': 'aligned-tables'})
-    typology_info_table = soup.find('div', {'class': 'js-acordion-body', 'id': 'typology'}).find('table', {
-        'class': 'aligned-tables'})
-    geographic_info_table = soup.find('div', {'class': 'js-acordion-body', 'id': 'geographic'}).find('table', {
-        'class': 'aligned-tables'})
-    technical_info_table = soup.find('div', {'class': 'js-acordion-body', 'id': 'technical'}).find('table', {
-        'class': 'aligned-tables'})
+    table_ids = ['general', 'typology', 'geographic']
+    for table_id in table_ids:
+        table = soup.find('div', {'class': 'js-acordion-body', 'id': table_id}).find('table', {'class': 'aligned-tables'})
+        bridge_info.update(extract_table_data(table))
 
-    for info_table in [general_info_table, typology_info_table, geographic_info_table, technical_info_table]:
-        if info_table:
-            rows = info_table.find_all('tr')
-            for row in rows:
-                header = row.find('th')
-                data = row.find('td')
-                if header and data:
-                    bridge_info[header.text.strip()] = data.text.strip()
+    technical_info_div = soup.find('div', {'class': 'js-acordion-body', 'id': 'technical'})
+    if technical_info_div:
+        extract_technical_data(technical_info_div, bridge_info)
+    else:
+        print("Technical information is not available.")
 
     bridge_name_tag = soup.find("h1", {"itemprop": "name"})
-    if bridge_name_tag:
-        bridge_name = bridge_name_tag.get_text(strip=True)
-        bridge_info["Bridge Name"] = bridge_name
-    else:
-        bridge_info["Bridge Name"] = "Unknown_bridge"
+    bridge_info["Bridge Name"] = bridge_name_tag.get_text(strip=True) if bridge_name_tag else "Unknown_bridge"
 
     return bridge_info
 
