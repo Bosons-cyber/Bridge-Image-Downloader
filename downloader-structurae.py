@@ -451,6 +451,7 @@ def log_runtime(func):
         end_time = time.time()
         logging.info(f"{func.__name__} runtime：{end_time - start_time} s")
         return result
+
     return wrapper
 
 
@@ -461,11 +462,20 @@ def main():
     base_url = BASE_URL + base_url_suffix
 
     try:
+        options = webdriver.ChromeOptions()
+        options.add_experimental_option('excludeSwitches', ['enable-logging'])
         driver = webdriver.Chrome(
-            service=Service(executable_path="chromedriver.exe"))
+            service=Service(executable_path="chromedriver.exe")
+            , options=options
+        )
     except Exception as e:
         print(e)
         return
+
+    path = 'images/'
+    isExists = os.path.exists(path)
+    if not isExists:
+        os.makedirs(path)
 
     login_choice = input("Would you like to log in? (y/n): ").lower()
 
