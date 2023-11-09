@@ -13,6 +13,10 @@ import urllib.parse
 from bs4 import BeautifulSoup
 import ssl
 import requests
+import logging
+from logging.handlers import RotatingFileHandler
+from requests.exceptions import RequestException
+from requests import Session
 
 try:
     _create_unverified_https_context = ssl._create_unverified_context
@@ -24,6 +28,14 @@ else:
 BASE_URL = "https://structurae.net"
 USER_AGENT = 'Mozilla/5.0'
 IMAGE_FOLDER = "images"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler('bridge_downloader.log', maxBytes=10000, backupCount=5)
+    ]
+)
 
 
 def navigate_and_wait(driver, url):
@@ -74,6 +86,15 @@ def get_bridge_media_soup(driver, url):
 
 
 def choose_bridge_type():
+    try:
+        with open("bridge_types.txt", "r", encoding="utf-8") as file:
+            bridge_types = file.read()
+            print("Available bridge types:\n" + bridge_types)
+    except FileNotFoundError:
+        print(
+            "The 'bridge_types.txt' file was not found. You may need to go to the original site to find out what type exactly.")
+        return None
+
     text = input("Please enter the name of the bridge type: ")
     typename = format_text(text)
 
@@ -99,6 +120,7 @@ def clean_folder_name(folder_name):
 
 def download_images_by_bridge_name(driver, bridge_names, base_url):
     problematic_bridges = []
+    session = Session()
     global BASE_URL
 
     summary_csv_path_en = "images/summary_en.csv"
@@ -106,55 +128,68 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
 
     for bridge_name_to_download in bridge_names:
         print(f"Processing bridge: {bridge_name_to_download}")
+        logging.info(f"Processing bridge: {bridge_name_to_download}")
         formatted_bridge_name = format_text(bridge_name_to_download)
 
         bridge_url_de = f"{base_url}/bauwerke/{formatted_bridge_name}"
 
-        response = requests.get(bridge_url_de)
+        try:
+            response = requests.get(bridge_url_de)
 
-        if response.status_code != 200:
-            print(f"Bridge not found: {bridge_name_to_download}")
+            if response.status_code != 200:
+                logging.warning(f"Bridge not found: {bridge_name_to_download}")
+                problematic_bridges.append(bridge_name_to_download)
+                continue
+
+            bridge_info_soup_de = get_bridge_info_soup(driver, bridge_url_de)
+            bridge_info_de = get_bridge_info(bridge_info_soup_de)
+            if bridge_info_de["Bridge Name"] is None:
+                bridge_name = bridge_info_de.get('Bezeichnung', 'Unknown_bridge')
+            else:
+                bridge_name = bridge_info_de["Bridge Name"]
+            clean_name = clean_folder_name(bridge_name)
+            bridge_folder = os.path.join("images", clean_name)
+            if not os.path.exists(bridge_folder):
+                os.makedirs(bridge_folder)
+
+            append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE")
+
+            bridge_url_en = get_en_link(bridge_info_soup_de)
+            bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
+            bridge_info_en = get_bridge_info(bridge_info_soup_en)
+
+            append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN")
+
+            bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
+            image_data = get_image_data(bridge_media_soup)
+            if not image_data:
+                logging.error(f"Can't find the image: {bridge_name_to_download}")
+                problematic_bridges.append(bridge_name_to_download)
+            else:
+                high_res_image_urls = image_data
+                for idx, high_res_image_url in enumerate(high_res_image_urls):
+                    try:
+                        response = requests.get(BASE_URL + high_res_image_url)
+                        new_soup = BeautifulSoup(response.content, 'html.parser')
+
+                        download_link = get_download_link(new_soup)
+                        if download_link:
+                            save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
+                            download_image(download_link, save_path)
+                            logging.error(f"Downloaded image: {save_path}")
+
+                    except RequestException as e:
+                        logging.error(f"Failed to download image: {e}")
+            time.sleep(1)
+
+        except RequestException as e:
+            logging.error(f"Network error occurred: {e}")
             problematic_bridges.append(bridge_name_to_download)
-            continue
-
-        bridge_info_soup_de = get_bridge_info_soup(driver, bridge_url_de)
-        bridge_info_de = get_bridge_info(bridge_info_soup_de)
-        if bridge_info_de["Bridge Name"] is None:
-            bridge_name = bridge_info_de.get('Bezeichnung', 'Unknown_bridge')
-        else:
-            bridge_name = bridge_info_de["Bridge Name"]
-        clean_name = clean_folder_name(bridge_name)
-        bridge_folder = os.path.join("images", clean_name)
-        if not os.path.exists(bridge_folder):
-            os.makedirs(bridge_folder)
-
-        append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de)
-
-        bridge_url_en = get_en_link(bridge_info_soup_de)
-        bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
-        bridge_info_en = get_bridge_info(bridge_info_soup_en)
-
-        append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en)
-
-        bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
-        image_data = get_image_data(bridge_media_soup)
-        if not image_data:
-            print(f"Can't find the image: {bridge_name_to_download}")
-            problematic_bridges.append(bridge_name_to_download)
-        else:
-            high_res_image_urls = image_data
-            for idx, high_res_image_url in enumerate(high_res_image_urls):
-                response = requests.get(BASE_URL + high_res_image_url)
-                new_soup = BeautifulSoup(response.content, 'html.parser')
-
-                download_link = get_download_link(new_soup)
-                if download_link:
-                    save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
-                    download_image(download_link, save_path)
-                    print(f"Downloaded image: {save_path}")
-        time.sleep(1)
 
     print(f"Problematic bridges : {problematic_bridges}")
+    logging.info(f"Problematic bridges : {problematic_bridges}")
+
+    session.close()
 
 
 def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code=None):
@@ -167,6 +202,10 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
 
     all_bridge_urls = []
     page = 0
+    existing_bridges = set()
+
+    for bridge_name in os.listdir('images/'):
+        existing_bridges.add(bridge_name)
 
     while len(all_bridge_urls) < num_bridges:
         current_page_url = bridge_type_url if page == 0 else f"{bridge_type_url}?min={page * 100}"
@@ -178,7 +217,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
             )
             bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
         except TimeoutException:
-            print("Timed out waiting for page to load")
+            logging.info("Timed out waiting for page to load")
             return
 
         if not bridge_links:
@@ -195,40 +234,46 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
         bridge_info_de = get_bridge_info(bridge_info_soup_de)
         bridge_name = bridge_info_de.get("Bridge Name", "Unknown_bridge")
 
-        if os.path.exists(f"images/{bridge_name}"):
-            print(f"Folder for bridge {bridge_name} already exists. Skipping...")
+        if bridge_name in existing_bridges:
+            logging.info(f"Folder for bridge {bridge_name} already exists. Skipping...")
             continue
 
+        logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
         print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
 
         bridge_folder = create_bridge_folder(bridge_name)
-        append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de)
+        append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE")
 
         bridge_url_en = get_en_link(bridge_info_soup_de)
         bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
         bridge_info_en = get_bridge_info(bridge_info_soup_en)
 
-        append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en)
+        append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN")
 
         bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
         image_data = get_image_data(bridge_media_soup)
 
         high_res_image_urls = image_data
-        for idx, high_res_image_url in enumerate(high_res_image_urls):
-            response = requests.get(BASE_URL + high_res_image_url)
-            new_soup = BeautifulSoup(response.content, 'html.parser')
+        try:
+            for idx, high_res_image_url in enumerate(high_res_image_urls):
+                response = requests.get(BASE_URL + high_res_image_url)
+                new_soup = BeautifulSoup(response.content, 'html.parser')
 
-            download_link = get_download_link(new_soup)
-            if download_link:
-                save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
-                download_image(download_link, save_path)
-                print(f"Downloaded image: {save_path}")
+                download_link = get_download_link(new_soup)
+                if download_link:
+                    save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
+                    download_image(download_link, save_path)
+                    logging.info(f"Downloaded image: {save_path}")
+        except RequestException as e:
+            logging.error(f"Failed to download image: {e}")
+
         time.sleep(1)
 
         downloaded_count += 1
         if downloaded_count >= num_bridges:
             break
 
+    logging.info("All bridges processed!")
     print("All bridges processed!")
 
 
@@ -265,7 +310,7 @@ def get_en_link(soup):
 
 def download_image(url, save_path):
     if os.path.exists(save_path):
-        print(f"File already exists, skip download: {save_path}")
+        logging.error(f"File already exists, skip download: {save_path}")
         return
 
     try:
@@ -274,7 +319,7 @@ def download_image(url, save_path):
             data = response.read()
             out_file.write(data)
     except urllib.error.URLError as e:
-        print(f"Failed to download image: {url} -> {save_path}, reason: {e}")
+        logging.error(f"Failed to download image: {url} -> {save_path}, reason: {e}")
 
 
 def format_text(text):
@@ -321,14 +366,15 @@ def get_bridge_info(soup):
 
     table_ids = ['general', 'typology', 'geographic']
     for table_id in table_ids:
-        table = soup.find('div', {'class': 'js-acordion-body', 'id': table_id}).find('table', {'class': 'aligned-tables'})
+        table = soup.find('div', {'class': 'js-acordion-body', 'id': table_id}).find('table',
+                                                                                     {'class': 'aligned-tables'})
         bridge_info.update(extract_table_data(table))
 
     technical_info_div = soup.find('div', {'class': 'js-acordion-body', 'id': 'technical'})
     if technical_info_div:
         extract_technical_data(technical_info_div, bridge_info)
     else:
-        print("Technical information is not available.")
+        logging.error("Technical information is not available.")
 
     bridge_name_tag = soup.find("h1", {"itemprop": "name"})
     bridge_info["Bridge Name"] = bridge_name_tag.get_text(strip=True) if bridge_name_tag else "Unknown_bridge"
@@ -348,29 +394,38 @@ def get_existing_columns(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         reader = csv.reader(f, delimiter=';')
         headers = next(reader, None)
+        if headers:
+            headers = [header for header in headers if header != ('Bridge Number' or 'Brückennummer')]
         return headers if headers else []
 
 
-def append_bridge_info_to_csv(bridge_info, file_path):
+def append_bridge_info_to_csv(bridge_info, file_path, language):
     folder_path = os.path.dirname(file_path)
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
     existing_columns = get_existing_columns(file_path)
-    all_columns = list(existing_columns) + [col for col in bridge_info.keys() if col not in existing_columns]
+    if language == "DE":
+        all_columns = ['Brückennummer'] + list(existing_columns) + [col for col in bridge_info.keys() if
+                                                                    col not in existing_columns]
+    else:
+        all_columns = ['Bridge Number'] + list(existing_columns) + [col for col in bridge_info.keys() if
+                                                                    col not in existing_columns]
+
+    bridge_number = sum(1 for row in open(file_path, 'r', encoding='utf-8')) if os.path.exists(file_path) else 1
 
     if not existing_columns:
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f, delimiter=';')
             writer.writerow(all_columns)
 
-    elif len(all_columns) > len(existing_columns):
+    elif len(all_columns) > len(existing_columns) + 1:
         temp_data = []
         with open(file_path, 'r', encoding='utf-8') as f:
             reader = csv.reader(f, delimiter=';')
             next(reader, None)
             for row in reader:
-                while len(row) < len(existing_columns):
+                while len(row) < len(existing_columns) + 1:
                     row.append("N/A")
                 temp_data.append(row)
 
@@ -382,13 +437,24 @@ def append_bridge_info_to_csv(bridge_info, file_path):
                 writer.writerow(row)
 
     cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}
-    bridge_data = [cleaned_bridge_info.get(column, "N/A") for column in all_columns]
+    bridge_data = [bridge_number] + [cleaned_bridge_info.get(column, "N/A") for column in all_columns[1:]]
 
     with open(file_path, 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f, delimiter=';')
         writer.writerow(bridge_data)
 
 
+def log_runtime(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        logging.info(f"{func.__name__} runtime：{end_time - start_time} s")
+        return result
+    return wrapper
+
+
+@log_runtime
 def main():
     base_url_suffix = '/de'
     global BASE_URL
@@ -414,6 +480,7 @@ def main():
             print("The login button was not found, you may have already logged in or the page structure has changed.")
 
     chosen_type = choose_search_type()
+
     if chosen_type == 'name':
         try:
             with open("bridges.txt", "r", encoding="utf-8") as file:
@@ -421,11 +488,14 @@ def main():
             download_images_by_bridge_name(driver, bridge_names, base_url)
         except FileNotFoundError:
             print("Please create a bridge.txt and add the name of the bridge to be processed line by line in it.")
-            input("Press the Enter key to exit the program...")
+            return
     elif chosen_type == 'type':
         bridge_type = choose_bridge_type()
         num_bridges = int(input("How many bridges do you want to download? "))
-        country_mode = input("Do you want to search by country?(login needed)(y/n): ").lower()
+        if login_choice == 'y':
+            country_mode = input("Do you want to search by country?(y/n): ").lower()
+        else:
+            country_mode = "n"
         if country_mode == "y":
             country_code = input(
                 "Please enter the country code (e.g., DE for Germany, BE for Belgium): ").strip().upper()
