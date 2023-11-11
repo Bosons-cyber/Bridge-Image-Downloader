@@ -54,14 +54,6 @@ def get_full_bridge_url(country_code, bridge_type, base_usl):
         return final_address
 
 
-def create_bridge_folder(bridge_name):
-    clean_name = clean_folder_name(bridge_name)
-    bridge_folder = os.path.join(IMAGE_FOLDER, clean_name)
-    if not os.path.exists(bridge_folder):
-        os.makedirs(bridge_folder)
-    return bridge_folder
-
-
 def get_bridge_info_soup(driver, url):
     driver.set_window_size(1200, 800)
     driver.get(url)
@@ -120,12 +112,21 @@ def clean_folder_name(folder_name):
     return re.sub(r'[<>:"/\\|?*]', '_', folder_name)
 
 
+def create_folder(folder_name):
+    if not os.path.exists(folder_name):
+        os.makedirs(folder_name)
+
+
 def create_unique_bridge_folder_from_url(bridge_url):
-    unique_identifier = bridge_url.rstrip('/').split('/')[-1]
-    bridge_folder = os.path.join('images', unique_identifier)
-    if not os.path.exists(bridge_folder):
-        os.makedirs(bridge_folder)
+    bridge_folder = os.path.join('images', get_unique_bridge_name_from_url(bridge_url))
+    create_folder(bridge_folder)
+
     return bridge_folder
+
+
+def get_unique_bridge_name_from_url(bridge_url):
+    unique_identifier = bridge_url.rstrip('/').split('/')[-1]
+    return unique_identifier
 
 
 def download_images_by_bridge_name(driver, bridge_names, base_url):
@@ -159,8 +160,7 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
                 bridge_name = bridge_info_de["Bridge Name"]
             clean_name = clean_folder_name(bridge_name)
             bridge_folder = os.path.join("images", clean_name)
-            if not os.path.exists(bridge_folder):
-                os.makedirs(bridge_folder)
+            create_folder(bridge_folder)
 
             append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE")
 
@@ -236,10 +236,11 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
     for idx, bridge_url_de in enumerate(all_bridge_urls, 1):
         bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
         bridge_info_de = get_bridge_info(bridge_info_soup_de)
-        bridge_name = bridge_info_de.get("Bridge Name", "Unknown_bridge")
+        bridge_unique_name = get_unique_bridge_name_from_url(bridge_url_de)
+        print(bridge_unique_name)
 
-        if bridge_name in existing_bridges:
-            logging.info(f"Folder for bridge {bridge_name} already exists. Skipping...")
+        if bridge_unique_name in existing_bridges:
+            logging.info(f"Folder for bridge {bridge_unique_name} already exists. Skipping...")
             continue
 
         logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
@@ -414,8 +415,7 @@ def get_existing_columns(file_path):
 
 def append_bridge_info_to_csv(bridge_info, file_path, language):
     folder_path = os.path.dirname(file_path)
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
+    create_folder(folder_path)
 
     existing_columns = get_existing_columns(file_path)
     if language == "DE":
@@ -486,9 +486,7 @@ def main():
         return
 
     path = 'images/'
-    isExists = os.path.exists(path)
-    if not isExists:
-        os.makedirs(path)
+    create_folder(path)
 
     login_choice = input("Would you like to log in? (y/n): ").lower()
 
