@@ -7,6 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+import concurrent.futures
 import time
 import urllib.request
 import urllib.parse
@@ -79,6 +80,7 @@ def get_bridge_media_soup(driver, url):
             EC.presence_of_element_located((By.CSS_SELECTOR, "a.imageThumbLink_2"))
         )
     except TimeoutException:
+        logging.info("No image found for the bridge. Continuing to extract other information...")
         print("No image found for the bridge. Continuing to extract other information...")
 
     soup = BeautifulSoup(driver.page_source, 'html.parser')
@@ -116,6 +118,14 @@ def choose_search_type():
 
 def clean_folder_name(folder_name):
     return re.sub(r'[<>:"/\\|?*]', '_', folder_name)
+
+
+def create_unique_bridge_folder_from_url(bridge_url):
+    unique_identifier = bridge_url.rstrip('/').split('/')[-1]
+    bridge_folder = os.path.join('images', unique_identifier)
+    if not os.path.exists(bridge_folder):
+        os.makedirs(bridge_folder)
+    return bridge_folder
 
 
 def download_images_by_bridge_name(driver, bridge_names, base_url):
@@ -163,23 +173,17 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
             if not image_data:
-                logging.error(f"Can't find the image: {bridge_name_to_download}")
                 problematic_bridges.append(bridge_name_to_download)
             else:
-                high_res_image_urls = image_data
-                for idx, high_res_image_url in enumerate(high_res_image_urls):
-                    try:
-                        response = requests.get(BASE_URL + high_res_image_url)
-                        new_soup = BeautifulSoup(response.content, 'html.parser')
+                high_res_image_links = []
+                for high_res_image_url in image_data:
+                    response = requests.get(BASE_URL + high_res_image_url)
+                    new_soup = BeautifulSoup(response.content, 'html.parser')
+                    download_link = get_download_link(new_soup)
+                    if download_link:
+                        high_res_image_links.append(download_link)
 
-                        download_link = get_download_link(new_soup)
-                        if download_link:
-                            save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
-                            download_image(download_link, save_path)
-                            logging.error(f"Downloaded image: {save_path}")
-
-                    except RequestException as e:
-                        logging.error(f"Failed to download image: {e}")
+                download_images_multithreaded(high_res_image_links, bridge_folder)
             time.sleep(1)
 
         except RequestException as e:
@@ -241,7 +245,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
         logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
         print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
 
-        bridge_folder = create_bridge_folder(bridge_name)
+        bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
         append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE")
 
         bridge_url_en = get_en_link(bridge_info_soup_de)
@@ -253,19 +257,16 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
         bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
         image_data = get_image_data(bridge_media_soup)
 
-        high_res_image_urls = image_data
-        try:
-            for idx, high_res_image_url in enumerate(high_res_image_urls):
+        if image_data:
+            high_res_image_links = []
+            for high_res_image_url in image_data:
                 response = requests.get(BASE_URL + high_res_image_url)
                 new_soup = BeautifulSoup(response.content, 'html.parser')
-
                 download_link = get_download_link(new_soup)
                 if download_link:
-                    save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
-                    download_image(download_link, save_path)
-                    logging.info(f"Downloaded image: {save_path}")
-        except RequestException as e:
-            logging.error(f"Failed to download image: {e}")
+                    high_res_image_links.append(download_link)
+
+            download_images_multithreaded(high_res_image_links, bridge_folder)
 
         time.sleep(1)
 
@@ -318,8 +319,20 @@ def download_image(url, save_path):
         with urllib.request.urlopen(req) as response, open(save_path, 'wb') as out_file:
             data = response.read()
             out_file.write(data)
+            logging.info(f"Downloaded {url} to {save_path}")
     except urllib.error.URLError as e:
         logging.error(f"Failed to download image: {url} -> {save_path}, reason: {e}")
+
+
+def download_images_multithreaded(image_links, bridge_folder):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = []
+        for idx, image_link in enumerate(image_links):
+            save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
+            futures.append(executor.submit(download_image, image_link, save_path))
+
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
 
 
 def format_text(text):
