@@ -234,14 +234,14 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
 
     downloaded_count = 0
     for idx, bridge_url_de in enumerate(all_bridge_urls, 1):
-        bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
-        bridge_info_de = get_bridge_info(bridge_info_soup_de)
         bridge_unique_name = get_unique_bridge_name_from_url(bridge_url_de)
-        print(bridge_unique_name)
 
         if bridge_unique_name in existing_bridges:
             logging.info(f"Folder for bridge {bridge_unique_name} already exists. Skipping...")
             continue
+
+        bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
+        bridge_info_de = get_bridge_info(bridge_info_soup_de)
 
         logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
         print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
