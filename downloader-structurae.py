@@ -395,7 +395,7 @@ def get_existing_columns(file_path):
         reader = csv.reader(f, delimiter=';')
         headers = next(reader, None)
         if headers:
-            headers = [header for header in headers if header != ('Bridge Number' or 'Brückennummer')]
+            headers = [header for header in headers if header not in ['Bridge Number', 'Brückennummer']]
         return headers if headers else []
 
 
