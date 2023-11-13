@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 import ssl
 import requests
 import logging
+import json
 from logging.handlers import RotatingFileHandler
 from requests.exceptions import RequestException
 from requests import Session
@@ -26,9 +27,19 @@ except AttributeError:
 else:
     ssl._create_default_https_context = _create_unverified_https_context
 
-BASE_URL = "https://structurae.net"
-USER_AGENT = 'Mozilla/5.0'
-IMAGE_FOLDER = "images"
+with open('config.json', 'r') as config_file:
+    config = json.load(config_file)
+
+BASE_URL = config['BASE_URL']
+USER_AGENT = config['USER_AGENT']
+IMAGE_FOLDER = config['IMAGE_FOLDER']
+WINDOWSIZE_WIDTH = config['WINDOWSIZE_WIDTH']
+WINDOWSIZE_HEIGHT = config['WINDOWSIZE_HEIGHT']
+summary_csv_path_en = config['summary_csv_path_en']
+summary_csv_path_de = config['summary_csv_path_de']
+time_lag = config['time_lag']
+total_workers = config['total_workers']
+chrome_driver_path = config['chrome_driver_path']
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +51,10 @@ logging.basicConfig(
 
 
 def navigate_and_wait(driver, url):
-    driver.set_window_size(1200, 800)
+    global WINDOWSIZE_WIDTH
+    global WINDOWSIZE_HEIGHT
+
+    driver.set_window_size(WINDOWSIZE_WIDTH, WINDOWSIZE_HEIGHT)
     driver.get(url)
     return BeautifulSoup(driver.page_source, 'html.parser')
 
@@ -54,17 +68,12 @@ def get_full_bridge_url(country_code, bridge_type, base_usl):
         return final_address
 
 
-def get_bridge_info_soup(driver, url):
-    driver.set_window_size(1200, 800)
-    driver.get(url)
-
-    soup = BeautifulSoup(driver.page_source, 'html.parser')
-    return soup
-
-
 def get_bridge_media_soup(driver, url):
+    global WINDOWSIZE_WIDTH
+    global WINDOWSIZE_HEIGHT
+
     media_url = f"{url}/medien"
-    driver.set_window_size(1200, 800)
+    driver.set_window_size(WINDOWSIZE_WIDTH, WINDOWSIZE_HEIGHT)
     driver.get(media_url)
 
     try:
@@ -86,7 +95,8 @@ def choose_bridge_type():
             print("Available bridge types:\n" + bridge_types)
     except FileNotFoundError:
         print(
-            "The 'bridge_types.txt' file was not found. You may need to go to the original site to find out what type exactly.")
+            "The 'bridge_types.txt' file was not found. "
+            "You may need to go to the original site to find out what type exactly.")
         return None
 
     text = input("Please enter the name of the bridge type: ")
@@ -133,9 +143,8 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
     problematic_bridges = []
     session = Session()
     global BASE_URL
-
-    summary_csv_path_en = "images/summary_en.csv"
-    summary_csv_path_de = "images/summary_de.csv"
+    global summary_csv_path_en
+    global summary_csv_path_de
 
     for bridge_name_to_download in bridge_names:
         print(f"Processing bridge: {bridge_name_to_download}")
@@ -152,7 +161,7 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
                 problematic_bridges.append(bridge_name_to_download)
                 continue
 
-            bridge_info_soup_de = get_bridge_info_soup(driver, bridge_url_de)
+            bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
             bridge_info_de = get_bridge_info(bridge_info_soup_de)
             if bridge_info_de["Bridge Name"] is None:
                 bridge_name = bridge_info_de.get('Bezeichnung', 'Unknown_bridge')
@@ -198,9 +207,9 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
 
 def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code=None):
     global BASE_URL
-
-    summary_csv_path_en = "images/summary_en.csv"
-    summary_csv_path_de = "images/summary_de.csv"
+    global summary_csv_path_en
+    global summary_csv_path_de
+    global time_lag
 
     bridge_type_url = get_full_bridge_url(country_code, bridge_type, base_url)
 
@@ -269,7 +278,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
 
             download_images_multithreaded(high_res_image_links, bridge_folder)
 
-        time.sleep(1)
+        time.sleep(time_lag)
 
         downloaded_count += 1
         if downloaded_count >= num_bridges:
@@ -326,7 +335,9 @@ def download_image(url, save_path):
 
 
 def download_images_multithreaded(image_links, bridge_folder):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    global total_workers
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=total_workers) as executor:
         futures = []
         for idx, image_link in enumerate(image_links):
             save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
@@ -472,13 +483,16 @@ def log_runtime(func):
 def main():
     base_url_suffix = '/de'
     global BASE_URL
+    global chrome_driver_path
+    global WINDOWSIZE_HEIGHT
+    global WINDOWSIZE_WIDTH
     base_url = BASE_URL + base_url_suffix
 
     try:
         options = webdriver.ChromeOptions()
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
         driver = webdriver.Chrome(
-            service=Service(executable_path="chromedriver.exe")
+            service=Service(executable_path=chrome_driver_path)
             , options=options
         )
     except Exception as e:
@@ -491,7 +505,7 @@ def main():
     login_choice = input("Would you like to log in? (y/n): ").lower()
 
     if login_choice == 'y':
-        driver.set_window_size(1200, 800)
+        driver.set_window_size(WINDOWSIZE_WIDTH, WINDOWSIZE_HEIGHT)
         driver.get(base_url)
         try:
             login_button = driver.find_element(By.ID, "myStructuraeLoginBtn")

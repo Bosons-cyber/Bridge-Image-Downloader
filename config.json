@@ -1,0 +1,17 @@
+{
+    "BASE_URL": "https://structurae.net",
+    "USER_AGENT": "Mozilla/5.0",
+    "IMAGE_FOLDER": "images",
+
+    "WINDOWSIZE_WIDTH": 1200,
+    "WINDOWSIZE_HEIGHT": 800,
+
+    "chrome_driver_path": "chromedriver.exe",
+
+    "summary_csv_path_en": "images/summary_en.csv",
+    "summary_csv_path_de": "images/summary_de.csv",
+
+    "time_lag": 1,
+
+    "total_workers": 5
+}
