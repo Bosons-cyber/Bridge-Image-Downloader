@@ -92,19 +92,41 @@ def get_bridge_media_soup(driver, url):
 
 def choose_bridge_type():
     try:
-        with open("bridge_types.txt", "r", encoding="utf-8") as file:
-            bridge_types = file.read()
-            print("Available bridge types:\n" + bridge_types)
+        with open("bridge_types.json", "r", encoding="utf-8") as file:
+            bridge_types = json.load(file)
+            print("Available bridge types:\n")
+            for code, name in bridge_types.items():
+                print(f"{code}: {name}")
     except FileNotFoundError:
-        print(
-            "The 'bridge_types.txt' file was not found. "
-            "You may need to go to the original site to find out what type exactly.")
-        return None
+        print("Bridge_types file not found.")
+        return
+    except json.JSONDecodeError:
+        print("Error decoding JSON from the country codes file.")
+        return
+    except Exception as e:
+        print(f"Error reading country codes file: {e}")
+        return
 
     text = input("Please enter the name of the bridge type: ")
     typename = format_text(text)
 
     return typename
+
+
+def list_supported_countries():
+    try:
+        with open("country_codes.json", "r", encoding="utf-8") as file:
+            country_codes = json.load(file)
+
+        print("Supported country codes:")
+        for code, name in country_codes.items():
+            print(f"{code}: {name}")
+    except FileNotFoundError:
+        print("Country codes file not found.")
+    except json.JSONDecodeError:
+        print("Error decoding JSON from the country codes file.")
+    except Exception as e:
+        print(f"Error reading country codes file: {e}")
 
 
 def choose_search_type():
@@ -564,8 +586,9 @@ def main():
                 country_mode = "n"
 
             if country_mode == "y":
+                list_supported_countries()
                 country_code = input(
-                    "Please enter the country code (e.g., DE for Germany, BE for Belgium): ").strip().upper()
+                    "Please enter the country code: ").strip().upper()
                 download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code)
             else:
                 download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url)
