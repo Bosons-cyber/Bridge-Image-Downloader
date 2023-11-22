@@ -16,6 +16,8 @@ import ssl
 import requests
 import logging
 import json
+import asyncio
+import aiofiles
 from logging.handlers import RotatingFileHandler
 from requests.exceptions import RequestException
 from requests import Session
@@ -171,13 +173,13 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
             bridge_folder = os.path.join("images", clean_name)
             create_folder(bridge_folder)
 
-            append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE")
+            asyncio.run(append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE"))
 
             bridge_url_en = get_en_link(bridge_info_soup_de)
             bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
             bridge_info_en = get_bridge_info(bridge_info_soup_en)
 
-            append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN")
+            asyncio.run(append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN"))
 
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
@@ -256,13 +258,13 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
         print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
 
         bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
-        append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE")
+        asyncio.run(append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE"))
 
         bridge_url_en = get_en_link(bridge_info_soup_de)
         bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
         bridge_info_en = get_bridge_info(bridge_info_soup_en)
 
-        append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN")
+        asyncio.run(append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN"))
 
         bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
         image_data = get_image_data(bridge_media_soup)
@@ -424,48 +426,43 @@ def get_existing_columns(file_path):
         return headers if headers else []
 
 
-def append_bridge_info_to_csv(bridge_info, file_path, language):
+async def append_bridge_info_to_csv(bridge_info, file_path, language):
     folder_path = os.path.dirname(file_path)
     create_folder(folder_path)
 
     existing_columns = get_existing_columns(file_path)
     if language == "DE":
-        all_columns = ['Brückennummer'] + list(existing_columns) + [col for col in bridge_info.keys() if
-                                                                    col not in existing_columns]
+        all_columns = ['Brückennummer'] + list(existing_columns) + [col for col in bridge_info.keys() if col not in existing_columns]
     else:
-        all_columns = ['Bridge Number'] + list(existing_columns) + [col for col in bridge_info.keys() if
-                                                                    col not in existing_columns]
+        all_columns = ['Bridge Number'] + list(existing_columns) + [col for col in bridge_info.keys() if col not in existing_columns]
 
     bridge_number = sum(1 for row in open(file_path, 'r', encoding='utf-8')) if os.path.exists(file_path) else 1
 
     if not existing_columns:
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f, delimiter=';')
-            writer.writerow(all_columns)
+        async with aiofiles.open(file_path, 'w', newline='', encoding='utf-8') as f:
+            await f.write(';'.join(all_columns) + '\n')
 
     elif len(all_columns) > len(existing_columns) + 1:
         temp_data = []
-        with open(file_path, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f, delimiter=';')
+        async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.reader((await f.read()).splitlines(), delimiter=';')
             next(reader, None)
             for row in reader:
                 while len(row) < len(existing_columns) + 1:
                     row.append("N/A")
                 temp_data.append(row)
 
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f, delimiter=';')
-            writer.writerow(all_columns)
+        async with aiofiles.open(file_path, 'w', newline='', encoding='utf-8') as f:
+            await f.write(';'.join(all_columns) + '\n')
             for row in temp_data:
                 row.extend("N/A" for _ in range(len(all_columns) - len(row)))
-                writer.writerow(row)
+                await f.write(';'.join(row) + '\n')
 
-    cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}
+    cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}  # 假设这是一个同步函数
     bridge_data = [bridge_number] + [cleaned_bridge_info.get(column, "N/A") for column in all_columns[1:]]
 
-    with open(file_path, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f, delimiter=';')
-        writer.writerow(bridge_data)
+    async with aiofiles.open(file_path, 'a', newline='', encoding='utf-8') as f:
+        await f.write(';'.join(map(str, bridge_data)) + '\n')
 
 
 def log_runtime(func):
