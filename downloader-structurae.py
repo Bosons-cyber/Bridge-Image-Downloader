@@ -6,7 +6,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import concurrent.futures
 import time
 import urllib.request
@@ -156,19 +156,25 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
         bridge_url_de = f"{base_url}/bauwerke/{formatted_bridge_name}"
 
         try:
-            response = requests.get(bridge_url_de)
+            try:
+                response = requests.get(bridge_url_de)
 
-            if response.status_code != 200:
-                logging.warning(f"Bridge not found: {bridge_name_to_download}")
+                if response.status_code != 200:
+                    raise RequestException(f"Failed to fetch bridge data: {response.status_code}")
+
+            except RequestException as e:
+                logging.warning(f"Bridge not found or network error: {e}")
                 problematic_bridges.append(bridge_name_to_download)
                 continue
 
             bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
             bridge_info_de = get_bridge_info(bridge_info_soup_de)
+
             if bridge_info_de["Bridge Name"] is None:
                 bridge_name = bridge_info_de.get('Bezeichnung', 'Unknown_bridge')
             else:
                 bridge_name = bridge_info_de["Bridge Name"]
+
             clean_name = clean_folder_name(bridge_name)
             bridge_folder = os.path.join("images", clean_name)
             create_folder(bridge_folder)
@@ -197,8 +203,8 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
                 download_images_multithreaded(high_res_image_links, bridge_folder)
             time.sleep(1)
 
-        except RequestException as e:
-            logging.error(f"Network error occurred: {e}")
+        except Exception as e:
+            logging.error(f"An error occurred while processing {bridge_name_to_download}: {e}")
             problematic_bridges.append(bridge_name_to_download)
 
     print(f"Problematic bridges : {problematic_bridges}")
@@ -213,27 +219,43 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
     global summary_csv_path_de
     global time_lag
 
-    bridge_type_url = get_full_bridge_url(country_code, bridge_type, base_url)
+    try:
+        bridge_type_url = get_full_bridge_url(country_code, bridge_type, base_url)
+    except Exception as e:
+        print(f"Error constructing bridge type URL: {e}")
+        logging.error(f"Error constructing bridge type URL: {e}")
+        return
 
     all_bridge_urls = []
     page = 0
     existing_bridges = set()
 
-    for bridge_name in os.listdir('images/'):
-        existing_bridges.add(bridge_name)
+    try:
+        for bridge_name in os.listdir('images/'):
+            existing_bridges.add(bridge_name)
+    except Exception as e:
+        print(f"Error constructing bridge type URL: {e}")
+        logging.error(f"Error reading bridge folders: {e}")
+        return
 
     while len(all_bridge_urls) < num_bridges:
-        current_page_url = bridge_type_url if page == 0 else f"{bridge_type_url}?min={page * 100}"
-        navigate_and_wait(driver, current_page_url)
-
         try:
+            current_page_url = bridge_type_url if page == 0 else f"{bridge_type_url}?min={page * 100}"
+            navigate_and_wait(driver, current_page_url)
+
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "td > a.listableleft"))
             )
             bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
         except TimeoutException:
             logging.info("Timed out waiting for page to load")
-            return
+            break
+        except NoSuchElementException:
+            logging.info("No bridge links found on the page")
+            break
+        except Exception as e:
+            logging.error(f"An error occurred while fetching bridge links: {e}")
+            break
 
         if not bridge_links:
             break
@@ -250,35 +272,39 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
         if bridge_unique_name in existing_bridges:
             logging.info(f"Folder for bridge {bridge_unique_name} already exists. Skipping...")
             continue
+        try:
+            bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
+            bridge_info_de = get_bridge_info(bridge_info_soup_de)
 
-        bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
-        bridge_info_de = get_bridge_info(bridge_info_soup_de)
+            logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
+            print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
 
-        logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
-        print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
+            bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
+            asyncio.run(append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE"))
 
-        bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
-        asyncio.run(append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE"))
+            bridge_url_en = get_en_link(bridge_info_soup_de)
+            bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
+            bridge_info_en = get_bridge_info(bridge_info_soup_en)
 
-        bridge_url_en = get_en_link(bridge_info_soup_de)
-        bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
-        bridge_info_en = get_bridge_info(bridge_info_soup_en)
+            asyncio.run(append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN"))
 
-        asyncio.run(append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN"))
+            bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
+            image_data = get_image_data(bridge_media_soup)
 
-        bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
-        image_data = get_image_data(bridge_media_soup)
+            if image_data:
+                high_res_image_links = []
+                for high_res_image_url in image_data:
+                    response = requests.get(BASE_URL + high_res_image_url)
+                    new_soup = BeautifulSoup(response.content, 'html.parser')
+                    download_link = get_download_link(new_soup)
+                    if download_link:
+                        high_res_image_links.append(download_link)
 
-        if image_data:
-            high_res_image_links = []
-            for high_res_image_url in image_data:
-                response = requests.get(BASE_URL + high_res_image_url)
-                new_soup = BeautifulSoup(response.content, 'html.parser')
-                download_link = get_download_link(new_soup)
-                if download_link:
-                    high_res_image_links.append(download_link)
-
-            download_images_multithreaded(high_res_image_links, bridge_folder)
+                download_images_multithreaded(high_res_image_links, bridge_folder)
+        except RequestException as e:
+            logging.error(f"Network error while processing bridge: {e}")
+        except Exception as e:
+            logging.error(f"An error occurred while processing bridge: {e}")
 
         time.sleep(time_lag)
 
@@ -432,9 +458,11 @@ async def append_bridge_info_to_csv(bridge_info, file_path, language):
 
     existing_columns = get_existing_columns(file_path)
     if language == "DE":
-        all_columns = ['Brückennummer'] + list(existing_columns) + [col for col in bridge_info.keys() if col not in existing_columns]
+        all_columns = ['Brückennummer'] + list(existing_columns) + [col for col in bridge_info.keys() if
+                                                                    col not in existing_columns]
     else:
-        all_columns = ['Bridge Number'] + list(existing_columns) + [col for col in bridge_info.keys() if col not in existing_columns]
+        all_columns = ['Bridge Number'] + list(existing_columns) + [col for col in bridge_info.keys() if
+                                                                    col not in existing_columns]
 
     bridge_number = sum(1 for row in open(file_path, 'r', encoding='utf-8')) if os.path.exists(file_path) else 1
 
@@ -485,6 +513,7 @@ def main():
     global WINDOWSIZE_WIDTH
     base_url = BASE_URL + base_url_suffix
 
+    driver = None
     try:
         options = webdriver.ChromeOptions()
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
@@ -493,7 +522,8 @@ def main():
             , options=options
         )
     except Exception as e:
-        print(e)
+        print(f"Error initializing the WebDriver: {e}")
+        logging.error(f"Error initializing the WebDriver: {e}")
         return
 
     path = 'images/'
@@ -508,38 +538,50 @@ def main():
             login_button = driver.find_element(By.ID, "myStructuraeLoginBtn")
             if login_button:
                 input("Please log in manually in your browser and press Enter to continue...")
-        except:
-            print("The login button was not found, you may have already logged in or the page structure has changed.")
+        except Exception as e:
+            print(f"Error finding the login button: {e}")
+            logging.error(f"Error finding the login button: {e}")
 
     chosen_type = choose_search_type()
 
-    if chosen_type == 'name':
-        try:
+    try:
+        if chosen_type == 'name':
             with open("bridges.txt", "r", encoding="utf-8") as file:
                 bridge_names = [line.strip() for line in file]
             download_images_by_bridge_name(driver, bridge_names, base_url)
-        except FileNotFoundError:
-            print("Please create a bridge.txt and add the name of the bridge to be processed line by line in it.")
-            return
-    elif chosen_type == 'type':
-        bridge_type = choose_bridge_type()
-        num_bridges = int(input("How many bridges do you want to download? "))
-        if login_choice == 'y':
-            country_mode = input("Do you want to search by country?(y/n): ").lower()
-        else:
-            country_mode = "n"
-        if country_mode == "y":
-            country_code = input(
-                "Please enter the country code (e.g., DE for Germany, BE for Belgium): ").strip().upper()
-            download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code)
-        else:
-            download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url)
-    else:
-        print("Invalid mode selected. Exiting.")
-        time.sleep(5)
-        return
+        elif chosen_type == 'type':
+            bridge_type = choose_bridge_type()
+            try:
+                num_bridges = int(input("How many bridges do you want to download? "))
+            except ValueError:
+                print("Invalid number. Exiting.")
+                logging.error("Invalid number. Exiting.")
+                return
 
-    driver.quit()
+            if login_choice == 'y':
+                country_mode = input("Do you want to search by country?(y/n): ").lower()
+            else:
+                country_mode = "n"
+
+            if country_mode == "y":
+                country_code = input(
+                    "Please enter the country code (e.g., DE for Germany, BE for Belgium): ").strip().upper()
+                download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code)
+            else:
+                download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url)
+        else:
+            print("Invalid mode selected. Exiting.")
+            logging.error("Invalid mode selected. Exiting.")
+            return
+    except FileNotFoundError:
+        print("Please create a bridge.txt and add the name of the bridge to be processed line by line in it.")
+        logging.error("Please create a bridge.txt and add the name of the bridge to be processed line by line in it.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        logging.error(f"An error occurred: {e}")
+    finally:
+        if driver:
+            driver.quit()
 
 
 if __name__ == "__main__":
