@@ -3,8 +3,8 @@
     "USER_AGENT": "Mozilla/5.0",
     "IMAGE_FOLDER": "images",
 
-    "WINDOWSIZE_WIDTH": 1200,
-    "WINDOWSIZE_HEIGHT": 800,
+    "WINDOW_SIZE_WIDTH": 1200,
+    "WINDOW_SIZE_HEIGHT": 800,
 
     "chrome_driver_path": "chromedriver.exe",
 

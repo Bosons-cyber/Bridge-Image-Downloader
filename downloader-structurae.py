@@ -5,12 +5,13 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support import expected_conditions as ec
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import concurrent.futures
 import time
 import urllib.request
 import urllib.parse
+import urllib.error
 from bs4 import BeautifulSoup
 import ssl
 import requests
@@ -35,8 +36,8 @@ with open('config.json', 'r') as config_file:
 BASE_URL = config['BASE_URL']
 USER_AGENT = config['USER_AGENT']
 IMAGE_FOLDER = config['IMAGE_FOLDER']
-WINDOWSIZE_WIDTH = config['WINDOWSIZE_WIDTH']
-WINDOWSIZE_HEIGHT = config['WINDOWSIZE_HEIGHT']
+WINDOW_SIZE_WIDTH = config['WINDOW_SIZE_WIDTH']
+WINDOW_SIZE_HEIGHT = config['WINDOW_SIZE_HEIGHT']
 summary_csv_path_en = config['summary_csv_path_en']
 summary_csv_path_de = config['summary_csv_path_de']
 time_lag = config['time_lag']
@@ -53,10 +54,10 @@ logging.basicConfig(
 
 
 def navigate_and_wait(driver, url):
-    global WINDOWSIZE_WIDTH
-    global WINDOWSIZE_HEIGHT
+    global WINDOW_SIZE_WIDTH
+    global WINDOW_SIZE_HEIGHT
 
-    driver.set_window_size(WINDOWSIZE_WIDTH, WINDOWSIZE_HEIGHT)
+    driver.set_window_size(WINDOW_SIZE_WIDTH, WINDOW_SIZE_HEIGHT)
     driver.get(url)
     return BeautifulSoup(driver.page_source, 'html.parser')
 
@@ -71,16 +72,16 @@ def get_full_bridge_url(country_code, bridge_type, base_usl):
 
 
 def get_bridge_media_soup(driver, url):
-    global WINDOWSIZE_WIDTH
-    global WINDOWSIZE_HEIGHT
+    global WINDOW_SIZE_WIDTH
+    global WINDOW_SIZE_HEIGHT
 
     media_url = f"{url}/medien"
-    driver.set_window_size(WINDOWSIZE_WIDTH, WINDOWSIZE_HEIGHT)
+    driver.set_window_size(WINDOW_SIZE_WIDTH, WINDOW_SIZE_HEIGHT)
     driver.get(media_url)
 
     try:
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "a.imageThumbLink_2"))
+            ec.presence_of_element_located((By.CSS_SELECTOR, "a.imageThumbLink_2"))
         )
     except TimeoutException:
         logging.info("No image found for the bridge. Continuing to extract other information...")
@@ -214,15 +215,7 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
             if not image_data:
                 problematic_bridges.append(bridge_name_to_download)
             else:
-                high_res_image_links = []
-                for high_res_image_url in image_data:
-                    response = requests.get(BASE_URL + high_res_image_url)
-                    new_soup = BeautifulSoup(response.content, 'html.parser')
-                    download_link = get_download_link(new_soup)
-                    if download_link:
-                        high_res_image_links.append(download_link)
-
-                download_images_multithreaded(high_res_image_links, bridge_folder)
+                download_images(image_data, bridge_folder)
             time.sleep(1)
 
         except Exception as e:
@@ -266,7 +259,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
             navigate_and_wait(driver, current_page_url)
 
             WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "td > a.listableleft"))
+                ec.presence_of_element_located((By.CSS_SELECTOR, "td > a.listableleft"))
             )
             bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
         except TimeoutException:
@@ -314,15 +307,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
             image_data = get_image_data(bridge_media_soup)
 
             if image_data:
-                high_res_image_links = []
-                for high_res_image_url in image_data:
-                    response = requests.get(BASE_URL + high_res_image_url)
-                    new_soup = BeautifulSoup(response.content, 'html.parser')
-                    download_link = get_download_link(new_soup)
-                    if download_link:
-                        high_res_image_links.append(download_link)
-
-                download_images_multithreaded(high_res_image_links, bridge_folder)
+                download_images(image_data, bridge_folder)
         except RequestException as e:
             logging.error(f"Network error while processing bridge: {e}")
         except Exception as e:
@@ -367,6 +352,18 @@ def get_en_link(soup):
             return a_tag['href']
 
     return None
+
+
+def download_images(image_data, bridge_folder):
+    high_res_image_links = []
+    for high_res_image_url in image_data:
+        response = requests.get(BASE_URL + high_res_image_url)
+        new_soup = BeautifulSoup(response.content, 'html.parser')
+        download_link = get_download_link(new_soup)
+        if download_link:
+            high_res_image_links.append(download_link)
+
+    download_images_multithreaded(high_res_image_links, bridge_folder)
 
 
 def download_image(url, save_path):
@@ -531,8 +528,8 @@ def main():
     base_url_suffix = '/de'
     global BASE_URL
     global chrome_driver_path
-    global WINDOWSIZE_HEIGHT
-    global WINDOWSIZE_WIDTH
+    global WINDOW_SIZE_HEIGHT
+    global WINDOW_SIZE_WIDTH
     base_url = BASE_URL + base_url_suffix
 
     driver = None
@@ -540,8 +537,8 @@ def main():
         options = webdriver.ChromeOptions()
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
         driver = webdriver.Chrome(
-            service=Service(executable_path=chrome_driver_path)
-            , options=options
+            service=Service(executable_path=chrome_driver_path),
+            options=options
         )
     except Exception as e:
         print(f"Error initializing the WebDriver: {e}")
@@ -554,7 +551,7 @@ def main():
     login_choice = input("Would you like to log in? (y/n): ").lower()
 
     if login_choice == 'y':
-        driver.set_window_size(WINDOWSIZE_WIDTH, WINDOWSIZE_HEIGHT)
+        driver.set_window_size(WINDOW_SIZE_WIDTH, WINDOW_SIZE_HEIGHT)
         driver.get(base_url)
         try:
             login_button = driver.find_element(By.ID, "myStructuraeLoginBtn")
