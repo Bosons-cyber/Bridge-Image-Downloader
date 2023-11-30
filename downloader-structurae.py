@@ -54,9 +54,6 @@ logging.basicConfig(
 
 
 def navigate_and_wait(driver, url):
-    global WINDOW_SIZE_WIDTH
-    global WINDOW_SIZE_HEIGHT
-
     driver.set_window_size(WINDOW_SIZE_WIDTH, WINDOW_SIZE_HEIGHT)
     driver.get(url)
     return BeautifulSoup(driver.page_source, 'html.parser')
@@ -72,9 +69,6 @@ def get_full_bridge_url(country_code, bridge_type, base_usl):
 
 
 def get_bridge_media_soup(driver, url):
-    global WINDOW_SIZE_WIDTH
-    global WINDOW_SIZE_HEIGHT
-
     media_url = f"{url}/medien"
     driver.set_window_size(WINDOW_SIZE_WIDTH, WINDOW_SIZE_HEIGHT)
     driver.get(media_url)
@@ -167,9 +161,6 @@ def get_unique_bridge_name_from_url(bridge_url):
 def download_images_by_bridge_name(driver, bridge_names, base_url):
     problematic_bridges = []
     session = Session()
-    global BASE_URL
-    global summary_csv_path_en
-    global summary_csv_path_de
 
     for bridge_name_to_download in bridge_names:
         print(f"Processing bridge: {bridge_name_to_download}")
@@ -229,11 +220,6 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
 
 
 def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code=None):
-    global BASE_URL
-    global summary_csv_path_en
-    global summary_csv_path_de
-    global time_lag
-
     try:
         bridge_type_url = get_full_bridge_url(country_code, bridge_type, base_url)
     except Exception as e:
@@ -456,7 +442,7 @@ def get_bridge_info(soup):
 
 def clean_value(value):
     if isinstance(value, str):
-        return value.replace('\n', ' ').replace('\r', ' ').strip()
+        return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').strip()
     return value
 
 
@@ -505,7 +491,7 @@ async def append_bridge_info_to_csv(bridge_info, file_path, language):
                 row.extend("N/A" for _ in range(len(all_columns) - len(row)))
                 await f.write(';'.join(row) + '\n')
 
-    cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}  # 假设这是一个同步函数
+    cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}
     bridge_data = [bridge_number] + [cleaned_bridge_info.get(column, "N/A") for column in all_columns[1:]]
 
     async with aiofiles.open(file_path, 'a', newline='', encoding='utf-8') as f:
@@ -526,10 +512,6 @@ def log_runtime(func):
 @log_runtime
 def main():
     base_url_suffix = '/de'
-    global BASE_URL
-    global chrome_driver_path
-    global WINDOW_SIZE_HEIGHT
-    global WINDOW_SIZE_WIDTH
     base_url = BASE_URL + base_url_suffix
 
     driver = None

@@ -1,0 +1,11 @@
+{
+    "BASE_URL": "https://historicbridges.org",
+    "USER_AGENT": "Mozilla/5.0",
+    "IMAGE_FOLDER": "images_his",
+
+    "summary_csv_path": "images_his/summary.csv",
+
+    "time_lag": 1,
+
+    "total_workers": 5
+}
