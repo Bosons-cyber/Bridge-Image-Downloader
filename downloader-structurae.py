@@ -451,7 +451,7 @@ def get_template_columns(file_path):
         reader = csv.reader(f, delimiter=';')
         headers = next(reader, None)
         if headers:
-            headers = [header for header in headers if header != '\ufeffbridge_id']
+            headers = [header for header in headers if header != '\ufeffbridge_id:']
         return headers if headers else []
 
 
