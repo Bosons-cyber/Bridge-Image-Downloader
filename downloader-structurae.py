@@ -1,6 +1,8 @@
 import csv
 import os
 import re
+import shutil
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -38,11 +40,12 @@ USER_AGENT = config['USER_AGENT']
 IMAGE_FOLDER = config['IMAGE_FOLDER']
 WINDOW_SIZE_WIDTH = config['WINDOW_SIZE_WIDTH']
 WINDOW_SIZE_HEIGHT = config['WINDOW_SIZE_HEIGHT']
-summary_csv_path_en = config['summary_csv_path_en']
-summary_csv_path_de = config['summary_csv_path_de']
+output_folder = config['output_folder']
 time_lag = config['time_lag']
 total_workers = config['total_workers']
 chrome_driver_path = config['chrome_driver_path']
+template_folder = config['template_folder']
+language = config['language']
 
 logging.basicConfig(
     level=logging.INFO,
@@ -147,7 +150,7 @@ def create_folder(folder_name):
 
 
 def create_unique_bridge_folder_from_url(bridge_url):
-    bridge_folder = os.path.join('images', get_unique_bridge_name_from_url(bridge_url))
+    bridge_folder = os.path.join(IMAGE_FOLDER, get_unique_bridge_name_from_url(bridge_url))
     create_folder(bridge_folder)
 
     return bridge_folder
@@ -168,10 +171,18 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
         formatted_bridge_name = format_text(bridge_name_to_download)
 
         bridge_url_de = f"{base_url}/bauwerke/{formatted_bridge_name}"
+        bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
+        bridge_url_en = get_en_link(bridge_info_soup_de)
+        if language == "English":
+            bridge_url = BASE_URL + bridge_url_en
+            bridge_info_soup = navigate_and_wait(driver, bridge_url)
+        else:
+            bridge_url = bridge_url_de
+            bridge_info_soup = bridge_info_soup_de
 
         try:
             try:
-                response = requests.get(bridge_url_de)
+                response = requests.get(bridge_url)
 
                 if response.status_code != 200:
                     raise RequestException(f"Failed to fetch bridge data: {response.status_code}")
@@ -181,25 +192,11 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
                 problematic_bridges.append(bridge_name_to_download)
                 continue
 
-            bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
-            bridge_info_de = get_bridge_info(bridge_info_soup_de)
+            bridge_info = get_bridge_info(bridge_info_soup)
 
-            if bridge_info_de["Bridge Name"] is None:
-                bridge_name = bridge_info_de.get('Bezeichnung', 'Unknown_bridge')
-            else:
-                bridge_name = bridge_info_de["Bridge Name"]
+            bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
 
-            clean_name = clean_folder_name(bridge_name)
-            bridge_folder = os.path.join("images", clean_name)
-            create_folder(bridge_folder)
-
-            asyncio.run(append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE"))
-
-            bridge_url_en = get_en_link(bridge_info_soup_de)
-            bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
-            bridge_info_en = get_bridge_info(bridge_info_soup_en)
-
-            asyncio.run(append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN"))
+            asyncio.run(process_all_templates(bridge_info))
 
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
@@ -232,7 +229,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
     existing_bridges = set()
 
     try:
-        for bridge_name in os.listdir('images/'):
+        for bridge_name in os.listdir(IMAGE_FOLDER):
             existing_bridges.add(bridge_name)
     except Exception as e:
         print(f"Error constructing bridge type URL: {e}")
@@ -268,26 +265,27 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
 
     downloaded_count = 0
     for idx, bridge_url_de in enumerate(all_bridge_urls, 1):
+        bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
+        bridge_url_en = get_en_link(bridge_info_soup_de)
+        if language == "English":
+            bridge_url = BASE_URL + bridge_url_en
+            bridge_info_soup = navigate_and_wait(driver, bridge_url)
+        else:
+            bridge_info_soup = bridge_info_soup_de
+
         bridge_unique_name = get_unique_bridge_name_from_url(bridge_url_de)
 
         if bridge_unique_name in existing_bridges:
             logging.info(f"Folder for bridge {bridge_unique_name} already exists. Skipping...")
             continue
         try:
-            bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
-            bridge_info_de = get_bridge_info(bridge_info_soup_de)
+            bridge_info = get_bridge_info(bridge_info_soup)
 
             logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
             print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
 
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
-            asyncio.run(append_bridge_info_to_csv(bridge_info_de, summary_csv_path_de, "DE"))
-
-            bridge_url_en = get_en_link(bridge_info_soup_de)
-            bridge_info_soup_en = navigate_and_wait(driver, BASE_URL + bridge_url_en)
-            bridge_info_en = get_bridge_info(bridge_info_soup_en)
-
-            asyncio.run(append_bridge_info_to_csv(bridge_info_en, summary_csv_path_en, "EN"))
+            asyncio.run(process_all_templates(bridge_info))
 
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
@@ -446,56 +444,76 @@ def clean_value(value):
     return value
 
 
-def get_existing_columns(file_path):
+def get_template_columns(file_path):
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         return []
     with open(file_path, 'r', encoding='utf-8') as f:
         reader = csv.reader(f, delimiter=';')
         headers = next(reader, None)
         if headers:
-            headers = [header for header in headers if header not in ['Bridge Number', 'Brückennummer']]
+            headers = [header for header in headers if header != '\ufeffbridge_id']
         return headers if headers else []
 
 
-async def append_bridge_info_to_csv(bridge_info, file_path, language):
-    folder_path = os.path.dirname(file_path)
-    create_folder(folder_path)
+async def append_bridge_info_to_csv(bridge_info, template_path, output_path):
+    folder_path = os.path.dirname(output_path)
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
 
-    existing_columns = get_existing_columns(file_path)
-    if language == "DE":
-        all_columns = ['Brückennummer'] + list(existing_columns) + [col for col in bridge_info.keys() if
-                                                                    col not in existing_columns]
-    else:
-        all_columns = ['Bridge Number'] + list(existing_columns) + [col for col in bridge_info.keys() if
-                                                                    col not in existing_columns]
-
-    bridge_number = sum(1 for row in open(file_path, 'r', encoding='utf-8')) if os.path.exists(file_path) else 1
-
-    if not existing_columns:
-        async with aiofiles.open(file_path, 'w', newline='', encoding='utf-8') as f:
-            await f.write(';'.join(all_columns) + '\n')
-
-    elif len(all_columns) > len(existing_columns) + 1:
-        temp_data = []
-        async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
-            reader = csv.reader((await f.read()).splitlines(), delimiter=';')
-            next(reader, None)
-            for row in reader:
-                while len(row) < len(existing_columns) + 1:
-                    row.append("N/A")
-                temp_data.append(row)
-
-        async with aiofiles.open(file_path, 'w', newline='', encoding='utf-8') as f:
-            await f.write(';'.join(all_columns) + '\n')
-            for row in temp_data:
-                row.extend("N/A" for _ in range(len(all_columns) - len(row)))
-                await f.write(';'.join(row) + '\n')
+    template_columns = get_template_columns(template_path)
+    print(template_columns)
 
     cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}
-    bridge_data = [bridge_number] + [cleaned_bridge_info.get(column, "N/A") for column in all_columns[1:]]
+    bridge_number = await get_next_bridge_number(output_path)
+    bridge_data = [bridge_number] + [cleaned_bridge_info.get(column, "N/A") for column in template_columns]
 
-    async with aiofiles.open(file_path, 'a', newline='', encoding='utf-8') as f:
-        await f.write(';'.join(map(str, bridge_data)) + '\n')
+    # 写入数据
+    async with aiofiles.open(output_path, 'a', newline='', encoding='utf-8') as f:
+        await f.write('\n' + ';'.join(map(str, bridge_data)))
+
+
+async def get_next_bridge_number(output_path):
+    bridge_number = 0
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+        async with aiofiles.open(output_path, 'r', encoding='utf-8') as f:
+            last_line = await get_last_line(f)
+            if last_line:  # 确保最后一行不是空的
+                # 假设编号是第一列
+                last_number = last_line.split(';')[0]
+                if last_number.isdigit():
+                    bridge_number = int(last_number)
+    bridge_number += 1
+    return bridge_number  # 直接返回数字编号
+
+
+async def get_last_line(f):
+    last_line = ''
+    while True:
+        line = await f.readline()
+        if not line:  # 当读到文件末尾时，line 会是空字符串
+            break
+        last_line = line
+    return last_line.strip()
+
+
+async def process_all_templates(bridge_info):
+    # 获取所有模板文件的路径
+    template_files = [f for f in os.listdir(template_folder) if f.endswith('.csv')]
+
+    # 遍历并处理每个模板文件
+    for template_file in template_files:
+        template_path = os.path.join(template_folder, template_file)
+        output_path = os.path.join(output_folder, template_file)
+        await append_bridge_info_to_csv(bridge_info, template_path, output_path)
+
+
+async def copy_all_templates():
+    template_files = [f for f in os.listdir(template_folder) if f.endswith('.csv')]
+
+    for template_file in template_files:
+        template_path = os.path.join(template_folder, template_file)
+        output_path = os.path.join(output_folder, template_file)  # 不更改文件名
+        shutil.copyfile(template_path, output_path)  # 直接复制文件
 
 
 def log_runtime(func):
@@ -527,8 +545,9 @@ def main():
         logging.error(f"Error initializing the WebDriver: {e}")
         return
 
-    path = 'images/'
-    create_folder(path)
+    create_folder(IMAGE_FOLDER)
+    create_folder(output_folder)
+    asyncio.run(copy_all_templates())
 
     login_choice = input("Would you like to log in? (y/n): ").lower()
 
@@ -587,5 +606,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    input("Press the Enter key to exit the program...")
+    again = "y"
+    while again == "y":
+        main()
+        again = input("Do you want to do it again?(y/n)")

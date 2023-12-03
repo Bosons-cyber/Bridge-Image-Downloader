@@ -8,8 +8,11 @@
 
     "chrome_driver_path": "chromedriver.exe",
 
-    "summary_csv_path_en": "images/summary_en.csv",
-    "summary_csv_path_de": "images/summary_de.csv",
+    "output_folder": "information",
+
+    "template_folder": "templates",
+
+    "language": "English",
 
     "time_lag": 1,
 
