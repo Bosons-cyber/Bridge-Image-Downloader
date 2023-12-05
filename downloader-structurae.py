@@ -161,7 +161,7 @@ def get_unique_bridge_name_from_url(bridge_url):
     return unique_identifier
 
 
-def download_images_by_bridge_name(driver, bridge_names, base_url):
+def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
     problematic_bridges = []
     session = Session()
 
@@ -193,10 +193,12 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
                 continue
 
             bridge_info = get_bridge_info(bridge_info_soup)
+            cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
+            replaced_bridge_info = replace_keys_in_dict(cleaned_bridge_info, key_mapping)
 
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
 
-            asyncio.run(process_all_templates(bridge_info))
+            asyncio.run(process_all_templates(replaced_bridge_info))
 
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
@@ -216,7 +218,7 @@ def download_images_by_bridge_name(driver, bridge_names, base_url):
     session.close()
 
 
-def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code=None):
+def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, key_mapping, country_code=None):
     try:
         bridge_type_url = get_full_bridge_url(country_code, bridge_type, base_url)
     except Exception as e:
@@ -280,12 +282,15 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, c
             continue
         try:
             bridge_info = get_bridge_info(bridge_info_soup)
+            cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
+            replaced_bridge_info = replace_keys_in_dict(cleaned_bridge_info, key_mapping)
 
             logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
             print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
 
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
-            asyncio.run(process_all_templates(bridge_info))
+
+            asyncio.run(process_all_templates(replaced_bridge_info))
 
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
@@ -400,7 +405,6 @@ def extract_technical_data(technical_div, bridge_info):
     tab_bodies = technical_div.find_all('div', class_='tabbody')
 
     for tab_body in tab_bodies:
-        category_prefix = tab_body.find_previous('h3').text.strip()
         table = tab_body.find('table')
         if table:
             rows = table.find_all('tr')
@@ -413,7 +417,7 @@ def extract_technical_data(technical_div, bridge_info):
                     else:
                         header = cells[0].text.strip()
                         value = cells[1].text.strip()
-                    full_key = f"{category_prefix} - {header}"
+                    full_key = header
                     bridge_info[full_key] = value
 
 
@@ -438,20 +442,28 @@ def get_bridge_info(soup):
     return bridge_info
 
 
+def replace_keys_in_dict(original_dict, key_mapping):
+    new_dict = {}
+    for key, value in original_dict.items():
+        new_key = key_mapping.get(key, key)  # 获取新键，如果不存在则保持原键
+        new_dict[new_key] = value
+    return new_dict
+
+
 def clean_value(value):
     if isinstance(value, str):
-        return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').strip()
+        return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(':', '').strip()
     return value
 
 
 def get_template_columns(file_path):
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         return []
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, 'r', encoding='utf-8-sig') as f:
         reader = csv.reader(f, delimiter=';')
         headers = next(reader, None)
         if headers:
-            headers = [header for header in headers if header != '\ufeffbridge_id:']
+            headers = [header for header in headers if header != 'bridge_id']
         return headers if headers else []
 
 
@@ -460,15 +472,18 @@ async def append_bridge_info_to_csv(bridge_info, template_path, output_path):
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
-    template_columns = get_template_columns(template_path)
-    print(template_columns)
+    # 获取模板列，并将它们转换为小写
+    template_columns = [col.lower() for col in get_template_columns(template_path)]
 
-    cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}
+    # 将 bridge_info 的键转换为小写
+    bridge_info_lower = {key.lower(): value for key, value in bridge_info.items()}
     bridge_number = await get_next_bridge_number(output_path)
-    bridge_data = [bridge_number] + [cleaned_bridge_info.get(column, "N/A") for column in template_columns]
+
+    # 构建 bridge_data，同时忽略键的大小写
+    bridge_data = [bridge_number] + [bridge_info_lower.get(column, "N/A") for column in template_columns]
 
     # 写入数据
-    async with aiofiles.open(output_path, 'a', newline='', encoding='utf-8') as f:
+    async with aiofiles.open(output_path, 'a', encoding='utf-8') as f:
         await f.write('\n' + ';'.join(map(str, bridge_data)))
 
 
@@ -507,7 +522,7 @@ async def process_all_templates(bridge_info):
         await append_bridge_info_to_csv(bridge_info, template_path, output_path)
 
 
-async def copy_all_templates():
+def copy_all_templates():
     template_files = [f for f in os.listdir(template_folder) if f.endswith('.csv')]
 
     for template_file in template_files:
@@ -531,6 +546,7 @@ def log_runtime(func):
 def main():
     base_url_suffix = '/de'
     base_url = BASE_URL + base_url_suffix
+    key_mapping = {"Structure": "Structure type", "Material": "Bridge type"}
 
     driver = None
     try:
@@ -547,7 +563,7 @@ def main():
 
     create_folder(IMAGE_FOLDER)
     create_folder(output_folder)
-    asyncio.run(copy_all_templates())
+    copy_all_templates()
 
     login_choice = input("Would you like to log in? (y/n): ").lower()
 
@@ -568,7 +584,7 @@ def main():
         if chosen_type == 'name':
             with open("bridges.txt", "r", encoding="utf-8") as file:
                 bridge_names = [line.strip() for line in file]
-            download_images_by_bridge_name(driver, bridge_names, base_url)
+            download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping)
         elif chosen_type == 'type':
             bridge_type = choose_bridge_type()
             try:
@@ -587,9 +603,9 @@ def main():
                 list_supported_countries()
                 country_code = input(
                     "Please enter the country code: ").strip().upper()
-                download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, country_code)
+                download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, key_mapping, country_code)
             else:
-                download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url)
+                download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, key_mapping)
         else:
             print("Invalid mode selected. Exiting.")
             logging.error("Invalid mode selected. Exiting.")
