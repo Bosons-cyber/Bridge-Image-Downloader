@@ -35,16 +35,19 @@ else:
 with open('config.json', 'r') as config_file:
     config = json.load(config_file)
 
-BASE_URL = config['BASE_URL']
-USER_AGENT = config['USER_AGENT']
-IMAGE_FOLDER = config['IMAGE_FOLDER']
-WINDOW_SIZE_WIDTH = config['WINDOW_SIZE_WIDTH']
-WINDOW_SIZE_HEIGHT = config['WINDOW_SIZE_HEIGHT']
+base_URL = config['base_URL']
+user_agent = config['user_agent']
+image_folder = config['image_folder']
+window_size_width = config['window_size_width']
+window_size_height = config['window_size_height']
 output_folder = config['output_folder']
 time_lag = config['time_lag']
+download_timeout = config['download_timeout']
+threat_timeout = config['threat_timeout']
 total_workers = config['total_workers']
 chrome_driver_path = config['chrome_driver_path']
-template_folder = config['template_folder']
+template_folder_en = config['template_folder_en']
+template_folder_de = config['template_folder_de']
 language = config['language']
 
 logging.basicConfig(
@@ -57,7 +60,7 @@ logging.basicConfig(
 
 
 def navigate_and_wait(driver, url):
-    driver.set_window_size(WINDOW_SIZE_WIDTH, WINDOW_SIZE_HEIGHT)
+    driver.set_window_size(window_size_width, window_size_height)
     driver.get(url)
     return BeautifulSoup(driver.page_source, 'html.parser')
 
@@ -73,7 +76,7 @@ def get_full_bridge_url(country_code, bridge_type, base_usl):
 
 def get_bridge_media_soup(driver, url):
     media_url = f"{url}/medien"
-    driver.set_window_size(WINDOW_SIZE_WIDTH, WINDOW_SIZE_HEIGHT)
+    driver.set_window_size(window_size_width, window_size_height)
     driver.get(media_url)
 
     try:
@@ -150,7 +153,7 @@ def create_folder(folder_name):
 
 
 def create_unique_bridge_folder_from_url(bridge_url):
-    bridge_folder = os.path.join(IMAGE_FOLDER, get_unique_bridge_name_from_url(bridge_url))
+    bridge_folder = os.path.join(image_folder, get_unique_bridge_name_from_url(bridge_url))
     create_folder(bridge_folder)
 
     return bridge_folder
@@ -174,7 +177,7 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
         bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
         bridge_url_en = get_en_link(bridge_info_soup_de)
         if language == "English":
-            bridge_url = BASE_URL + bridge_url_en
+            bridge_url = base_url + bridge_url_en
             bridge_info_soup = navigate_and_wait(driver, bridge_url)
         else:
             bridge_url = bridge_url_de
@@ -231,7 +234,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
     existing_bridges = set()
 
     try:
-        for bridge_name in os.listdir(IMAGE_FOLDER):
+        for bridge_name in os.listdir(image_folder):
             existing_bridges.add(bridge_name)
     except Exception as e:
         print(f"Error constructing bridge type URL: {e}")
@@ -270,7 +273,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
         bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
         bridge_url_en = get_en_link(bridge_info_soup_de)
         if language == "English":
-            bridge_url = BASE_URL + bridge_url_en
+            bridge_url = base_url + bridge_url_en
             bridge_info_soup = navigate_and_wait(driver, bridge_url)
         else:
             bridge_info_soup = bridge_info_soup_de
@@ -346,7 +349,7 @@ def get_en_link(soup):
 def download_images(image_data, bridge_folder):
     high_res_image_links = []
     for high_res_image_url in image_data:
-        response = requests.get(BASE_URL + high_res_image_url)
+        response = requests.get(base_URL + high_res_image_url)
         new_soup = BeautifulSoup(response.content, 'html.parser')
         download_link = get_download_link(new_soup)
         if download_link:
@@ -361,13 +364,15 @@ def download_image(url, save_path):
         return
 
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
-        with urllib.request.urlopen(req) as response, open(save_path, 'wb') as out_file:
+        req = urllib.request.Request(url, headers={'User-Agent': user_agent})
+        with urllib.request.urlopen(req, timeout=download_timeout) as response, open(save_path, 'wb') as out_file:
             data = response.read()
             out_file.write(data)
             logging.info(f"Downloaded {url} to {save_path}")
     except urllib.error.URLError as e:
         logging.error(f"Failed to download image: {url} -> {save_path}, reason: {e}")
+    except Exception as e:
+        logging.error(f"Error downloading image: {url} -> {save_path}, reason: {e}")
 
 
 def download_images_multithreaded(image_links, bridge_folder):
@@ -379,8 +384,11 @@ def download_images_multithreaded(image_links, bridge_folder):
             save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
             futures.append(executor.submit(download_image, image_link, save_path))
 
-        for future in concurrent.futures.as_completed(futures):
-            future.result()
+        for future in concurrent.futures.as_completed(futures, timeout=threat_timeout):
+            try:
+                future.result()
+            except concurrent.futures.TimeoutError:
+                logging.error("A download thread has timed out and been skipped.")
 
 
 def format_text(text):
@@ -408,17 +416,35 @@ def extract_technical_data(technical_div, bridge_info):
         table = tab_body.find('table')
         if table:
             rows = table.find_all('tr')
+            current_header = ""  # 当前行的主要header
+
             for row in rows:
                 cells = row.find_all(['th', 'td'])
-                if len(cells) > 1:
-                    if cells[0].name == 'td' and not cells[0].text.strip():
-                        header = cells[1].text.strip()
-                        value = cells[2].text.strip() if len(cells) > 2 else ""
+
+                if len(cells) == 3:
+                    # 如果行中有三个单元格，按header, key, value处理
+                    current_header = cells[0].text.strip()
+                    key = cells[1].text.strip()
+                    value = cells[2].text.strip()
+                    full_key = f"{current_header} {key}" if current_header else key
+                elif len(cells) == 2:
+                    # 如果行中有两个单元格，可能是key和value，也可能是header和value
+                    if 'rowspan' in cells[0].attrs:
+                        # 如果第一个单元格有rowspan属性，则它是新的header
+                        current_header = cells[0].text.strip()
+                        key = cells[1].text.strip()
+                        full_key = current_header
                     else:
-                        header = cells[0].text.strip()
+                        # 否则，使用当前的header
+                        key = cells[0].text.strip()
                         value = cells[1].text.strip()
-                    full_key = header
-                    bridge_info[full_key] = value
+                        full_key = f"{current_header} {key}" if current_header else key
+                elif len(cells) == 1:
+                    # 只有一个单元格，可能是继续使用当前header的值
+                    value = cells[0].text.strip()
+                    full_key = current_header
+
+                bridge_info[full_key] = value
 
 
 def get_bridge_info(soup):
@@ -437,7 +463,10 @@ def get_bridge_info(soup):
         logging.error("Technical information is not available.")
 
     bridge_name_tag = soup.find("h1", {"itemprop": "name"})
-    bridge_info["Bridge Name"] = bridge_name_tag.get_text(strip=True) if bridge_name_tag else "Unknown_bridge"
+    if language == "English":
+        bridge_info["Bridge Name"] = bridge_name_tag.get_text(strip=True) if bridge_name_tag else "Unknown_bridge"
+    else:
+        bridge_info["Brücke Name"] = bridge_name_tag.get_text(strip=True) if bridge_name_tag else "Unbekannte_Brücke"
 
     return bridge_info
 
@@ -463,7 +492,7 @@ def get_template_columns(file_path):
         reader = csv.reader(f, delimiter=';')
         headers = next(reader, None)
         if headers:
-            headers = [header for header in headers if header != 'bridge_id']
+            headers = [header for header in headers if header != 'bridge_id' and header != 'Brücke_id']
         return headers if headers else []
 
 
@@ -512,6 +541,11 @@ async def get_last_line(f):
 
 
 async def process_all_templates(bridge_info):
+    if language == "English":
+        template_folder = template_folder_en
+    else:
+        template_folder = template_folder_de
+
     # 获取所有模板文件的路径
     template_files = [f for f in os.listdir(template_folder) if f.endswith('.csv')]
 
@@ -523,6 +557,11 @@ async def process_all_templates(bridge_info):
 
 
 def copy_all_templates():
+    if language == "English":
+        template_folder = template_folder_en
+    else:
+        template_folder = template_folder_de
+
     template_files = [f for f in os.listdir(template_folder) if f.endswith('.csv')]
 
     for template_file in template_files:
@@ -545,8 +584,11 @@ def log_runtime(func):
 @log_runtime
 def main():
     base_url_suffix = '/de'
-    base_url = BASE_URL + base_url_suffix
-    key_mapping = {"Structure": "Structure type", "Material": "Bridge type"}
+    base_url = base_URL + base_url_suffix
+    if language == "English":
+        key_mapping = {"Structure": "Structure type", "Material": "Bridge type"}
+    else:
+        key_mapping = {"Baustoff": "Brücke typ"}
 
     driver = None
     try:
@@ -561,14 +603,14 @@ def main():
         logging.error(f"Error initializing the WebDriver: {e}")
         return
 
-    create_folder(IMAGE_FOLDER)
+    create_folder(image_folder)
     create_folder(output_folder)
     copy_all_templates()
 
     login_choice = input("Would you like to log in? (y/n): ").lower()
 
     if login_choice == 'y':
-        driver.set_window_size(WINDOW_SIZE_WIDTH, WINDOW_SIZE_HEIGHT)
+        driver.set_window_size(window_size_width, window_size_height)
         driver.get(base_url)
         try:
             login_button = driver.find_element(By.ID, "myStructuraeLoginBtn")

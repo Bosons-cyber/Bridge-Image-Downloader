@@ -1,18 +1,22 @@
 {
-    "BASE_URL": "https://structurae.net",
-    "USER_AGENT": "Mozilla/5.0",
-    "IMAGE_FOLDER": "images",
+    "base_URL": "https://structurae.net",
+    "user_agent": "Mozilla/5.0",
+    "image_folder": "images",
 
-    "WINDOW_SIZE_WIDTH": 1200,
-    "WINDOW_SIZE_HEIGHT": 800,
+    "window_size_width": 1200,
+    "window_size_height": 800,
 
     "chrome_driver_path": "chromedriver.exe",
 
     "output_folder": "information",
 
-    "template_folder": "templates",
+    "template_folder_en": "templates_en",
+    "template_folder_de": "templates_de",
 
-    "language": "English",
+    "language": "Deutsch",
+
+    "download_timeout": 10,
+    "threat_timeout": 60,
 
     "time_lag": 1,
 
