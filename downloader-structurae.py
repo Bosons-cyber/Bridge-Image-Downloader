@@ -54,7 +54,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        RotatingFileHandler('bridge_downloader.log', maxBytes=10000, backupCount=5)
+        RotatingFileHandler('bridge_downloader.log', maxBytes=2000, backupCount=5)
     ]
 )
 
@@ -242,11 +242,13 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
         return
 
     while len(all_bridge_urls) < num_bridges:
+        unprocessed_urls = []
+
         try:
             current_page_url = bridge_type_url if page == 0 else f"{bridge_type_url}?min={page * 100}"
             navigate_and_wait(driver, current_page_url)
 
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 60).until(
                 ec.presence_of_element_located((By.CSS_SELECTOR, "td > a.listableleft"))
             )
             bridge_links = driver.find_elements(By.CSS_SELECTOR, "td > a.listableleft")
@@ -264,25 +266,28 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
             break
 
         bridge_urls = [link.get_attribute("href") for link in bridge_links]
-        all_bridge_urls.extend(bridge_urls)
+
+        for url in bridge_urls:
+            bridge_unique_name = get_unique_bridge_name_from_url(url)
+            if bridge_unique_name not in existing_bridges:
+                unprocessed_urls.append(url)
+            else:
+                logging.info(f"Folder for bridge {bridge_unique_name} already exists. Skipping...")
+
+        all_bridge_urls.extend(unprocessed_urls)
 
         page += 1
 
     downloaded_count = 0
     for idx, bridge_url_de in enumerate(all_bridge_urls, 1):
         bridge_info_soup_de = navigate_and_wait(driver, bridge_url_de)
+
         bridge_url_en = get_en_link(bridge_info_soup_de)
         if language == "English":
             bridge_url = base_url + bridge_url_en
             bridge_info_soup = navigate_and_wait(driver, bridge_url)
         else:
             bridge_info_soup = bridge_info_soup_de
-
-        bridge_unique_name = get_unique_bridge_name_from_url(bridge_url_de)
-
-        if bridge_unique_name in existing_bridges:
-            logging.info(f"Folder for bridge {bridge_unique_name} already exists. Skipping...")
-            continue
         try:
             bridge_info = get_bridge_info(bridge_info_soup)
             cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
@@ -605,7 +610,8 @@ def main():
 
     create_folder(image_folder)
     create_folder(output_folder)
-    copy_all_templates()
+    if not os.listdir(output_folder):
+        copy_all_templates()
 
     login_choice = input("Would you like to log in? (y/n): ").lower()
 

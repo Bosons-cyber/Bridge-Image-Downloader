@@ -44,6 +44,8 @@ logging.basicConfig(
 def get_full_bridge_url(country_code, base_url):
     if country_code == "ZHEJIANG":
         final_address = f"{base_url}/b_a_list.php?ct=China&c=&ptype=state&pname={country_code}"
+    elif country_code == "Scotland" or country_code == "England" or country_code == "Wales":
+        final_address = f"{base_url}/b_a_list.php?ct=United+Kingdom&c=&ptype=state&pname={country_code}"
     else:
         final_address = f"{base_url}/b_a_list.php?ct=&c=&ptype=country&pname={country_code}"
     return final_address
