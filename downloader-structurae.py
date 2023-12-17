@@ -46,6 +46,7 @@ output_folder = config['output_folder']
 time_lag = config['time_lag']
 download_timeout = config['download_timeout']
 threat_timeout = config['threat_timeout']
+multithreading = config['multithreading']
 total_workers = config['total_workers']
 chrome_driver_path = config['chrome_driver_path']
 template_folder_en = config['template_folder_en']
@@ -472,7 +473,12 @@ def download_images(image_data, bridge_folder):
         if download_link:
             high_res_image_links.append(download_link)
 
-    download_images_multithreaded(high_res_image_links, bridge_folder)
+    if multithreading == "True":
+        download_images_multithreaded(high_res_image_links, bridge_folder)
+    else:
+        for idx, image_link in enumerate(high_res_image_links):
+            save_path = os.path.join(bridge_folder, f"image_{idx}.jpg")
+            download_image(image_link, save_path)
 
 
 def download_image(url, save_path):

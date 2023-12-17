@@ -15,10 +15,11 @@
 
     "language": "Deutsch",
 
-    "download_timeout": 10,
-    "threat_timeout": 60,
+    "download_timeout": 5,
+    "threat_timeout": 20,
 
     "time_lag": 1,
 
-    "total_workers": 5
+    "multithreading": "True",
+    "total_workers": 3
 }
