@@ -43,6 +43,7 @@ image_folder = config['image_folder']
 window_size_width = config['window_size_width']
 window_size_height = config['window_size_height']
 output_folder = config['output_folder']
+summary_csv_path = config['summary_csv_path']
 time_lag = config['time_lag']
 download_timeout = config['download_timeout']
 threat_timeout = config['threat_timeout']
@@ -278,6 +279,7 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
 
             asyncio.run(process_all_templates(replaced_bridge_info))
+            asyncio.run(append_bridge_info_to_summary(replaced_bridge_info, summary_csv_path))
 
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
@@ -385,6 +387,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
 
             asyncio.run(process_all_templates(replaced_bridge_info))
+            asyncio.run(append_bridge_info_to_summary(replaced_bridge_info, summary_csv_path))
 
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
@@ -655,6 +658,78 @@ def clean_value(value):
     if isinstance(value, str):
         return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(':', '').strip()
     return value
+
+
+def get_existing_columns(file_path):
+    """
+        Retrieves existing column headers from a CSV file.
+        Args:
+            file_path: Path to the CSV file.
+        Returns:
+            A list of existing column headers, excluding 'Bridge Number' and 'Brückennummer'.
+        """
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        return []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        reader = csv.reader(f, delimiter=';')
+        headers = next(reader, None)
+        if headers:
+            # Filter out specific headers
+            headers = [header for header in headers if header not in ['Bridge Number', 'Brückennummer']]
+        return headers if headers else []
+
+
+async def append_bridge_info_to_summary(bridge_info, file_path):
+    """
+        Asynchronously appends bridge information to a summary CSV file.
+        Args:
+            bridge_info: Dictionary containing bridge information.
+            file_path: Path to the summary CSV file.
+        """
+    # Create the folder for the file if it doesn't exist
+    folder_path = os.path.dirname(file_path)
+    create_folder(folder_path)
+
+    # Get existing columns and determine all columns to be included
+    existing_columns = get_existing_columns(file_path)
+    if language == "English":
+        all_columns = ['Bridge Number'] + list(existing_columns) + [col for col in bridge_info.keys() if
+                                                                    col not in existing_columns]
+    else:
+        all_columns = ['Brückennummer'] + list(existing_columns) + [col for col in bridge_info.keys() if
+                                                                    col not in existing_columns]
+
+    # Calculate the bridge number
+    bridge_number = sum(1 for row in open(file_path, 'r', encoding='utf-8')) if os.path.exists(file_path) else 1
+
+    # Write headers if the file is new or update the file if new columns are added
+    if not existing_columns:
+        async with aiofiles.open(file_path, 'w', newline='', encoding='utf-8') as f:
+            await f.write(';'.join(all_columns) + '\n')
+
+    elif len(all_columns) > len(existing_columns) + 1:
+        temp_data = []
+        async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.reader((await f.read()).splitlines(), delimiter=';')
+            next(reader, None)
+            for row in reader:
+                while len(row) < len(existing_columns) + 1:
+                    row.append("N/A")
+                temp_data.append(row)
+
+        async with aiofiles.open(file_path, 'w', newline='', encoding='utf-8') as f:
+            await f.write(';'.join(all_columns) + '\n')
+            for row in temp_data:
+                row.extend("N/A" for _ in range(len(all_columns) - len(row)))
+                await f.write(';'.join(row) + '\n')
+
+    # Clean the bridge information and prepare the data for writing
+    cleaned_bridge_info = {key: clean_value(value) for key, value in bridge_info.items()}
+    bridge_data = [bridge_number] + [cleaned_bridge_info.get(column, "N/A") for column in all_columns[1:]]
+
+    # Append the bridge data to the file
+    async with aiofiles.open(file_path, 'a', newline='', encoding='utf-8') as f:
+        await f.write(';'.join(map(str, bridge_data)) + '\n')
 
 
 def get_template_columns(file_path):

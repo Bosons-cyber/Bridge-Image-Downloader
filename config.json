@@ -9,6 +9,7 @@
     "chrome_driver_path": "chromedriver.exe",
 
     "output_folder": "information",
+    "summary_csv_path": "information/summary.csv",
 
     "template_folder_en": "templates_en",
     "template_folder_de": "templates_de",
@@ -20,6 +21,6 @@
 
     "time_lag": 1,
 
-    "multithreading": "True",
+    "multithreading": "False",
     "total_workers": 3
 }
