@@ -59,7 +59,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        RotatingFileHandler('bridge_downloader.log', maxBytes=2000, backupCount=5)
+        RotatingFileHandler('bridge_downloader.log', maxBytes=2000, backupCount=5, encoding='utf-8')
     ]
 )
 
