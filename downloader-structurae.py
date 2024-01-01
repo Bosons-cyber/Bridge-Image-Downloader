@@ -278,15 +278,23 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
 
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
 
-            asyncio.run(process_all_templates(replaced_bridge_info))
-            asyncio.run(append_bridge_info_to_summary(replaced_bridge_info, summary_csv_path))
-
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
             if not image_data:
+                image_count = 0
                 problematic_bridges.append(bridge_name_to_download)
             else:
+                image_count = len(image_data)
                 download_images(image_data, bridge_folder)
+
+            if language == "English":
+                replaced_bridge_info['Image Count'] = image_count
+            else:
+                replaced_bridge_info['Anzahl der Bilder'] = image_count
+
+            asyncio.run(process_all_templates(replaced_bridge_info))
+            asyncio.run(append_bridge_info_to_summary(replaced_bridge_info, summary_csv_path))
+
             time.sleep(1)
 
         except Exception as e:
@@ -386,14 +394,23 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
 
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
 
-            asyncio.run(process_all_templates(replaced_bridge_info))
-            asyncio.run(append_bridge_info_to_summary(replaced_bridge_info, summary_csv_path))
-
             bridge_media_soup = get_bridge_media_soup(driver, bridge_url_de)
             image_data = get_image_data(bridge_media_soup)
 
             if image_data:
+                image_count = len(image_data)
                 download_images(image_data, bridge_folder)
+            else:
+                image_count = 0
+
+            if language == "English":
+                replaced_bridge_info['Image Count'] = image_count
+            else:
+                replaced_bridge_info['Anzahl der Bilder'] = image_count
+
+            asyncio.run(process_all_templates(replaced_bridge_info))
+            asyncio.run(append_bridge_info_to_summary(replaced_bridge_info, summary_csv_path))
+
         except RequestException as e:
             logging.error(f"Network error while processing bridge: {e}")
         except Exception as e:
