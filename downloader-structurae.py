@@ -292,6 +292,11 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
             else:
                 replaced_bridge_info['Anzahl der Bilder'] = image_count
 
+            if language == "English":
+                replaced_bridge_info['Unique Name'] = get_unique_bridge_name_from_url(bridge_url_de)
+            else:
+                replaced_bridge_info['eindeutiger Name'] = get_unique_bridge_name_from_url(bridge_url_de)
+
             asyncio.run(process_all_templates(replaced_bridge_info))
             asyncio.run(append_bridge_info_to_summary(replaced_bridge_info, summary_csv_path))
 
@@ -407,6 +412,11 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
                 replaced_bridge_info['Image Count'] = image_count
             else:
                 replaced_bridge_info['Anzahl der Bilder'] = image_count
+
+            if language == "English":
+                replaced_bridge_info['Unique Name'] = get_unique_bridge_name_from_url(bridge_url_de)
+            else:
+                replaced_bridge_info['eindeutiger Name'] = get_unique_bridge_name_from_url(bridge_url_de)
 
             asyncio.run(process_all_templates(replaced_bridge_info))
             asyncio.run(append_bridge_info_to_summary(replaced_bridge_info, summary_csv_path))
