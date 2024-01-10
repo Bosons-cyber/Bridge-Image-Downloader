@@ -33,8 +33,11 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 
 # Load configuration from 'config.json'
-with open('config.json', 'r') as config_file:
-    config = json.load(config_file)
+try:
+    with open('config.json', 'r') as config_file:
+        config = json.load(config_file)
+except FileNotFoundError:
+    logging.error("Config file not found.")
 
 # Configuration variables
 base_URL = config['base_URL']
@@ -272,7 +275,12 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
                 problematic_bridges.append(bridge_name_to_download)
                 continue
 
-            bridge_info = get_bridge_info(bridge_info_soup)
+            try:
+                bridge_info = get_bridge_info(bridge_info_soup)
+            except Exception as e:
+                logging.error(f"Error processing bridge info: {e}")
+                continue
+
             cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
             replaced_bridge_info = replace_keys_in_dict(cleaned_bridge_info, key_mapping)
 
@@ -869,8 +877,8 @@ def copy_all_templates():
 
     for template_file in template_files:
         template_path = os.path.join(template_folder, template_file)
-        output_path = os.path.join(output_folder, template_file)  # 不更改文件名
-        shutil.copyfile(template_path, output_path)  # 直接复制文件
+        output_path = os.path.join(output_folder, template_file)
+        shutil.copyfile(template_path, output_path)
 
 
 def log_runtime(func):
