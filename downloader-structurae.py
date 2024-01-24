@@ -281,8 +281,7 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
                 logging.error(f"Error processing bridge info: {e}")
                 continue
 
-            cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
-            replaced_bridge_info = replace_keys_in_dict(cleaned_bridge_info, key_mapping)
+            replaced_bridge_info = deal_with_value(bridge_info, key_mapping)
 
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
 
@@ -399,8 +398,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
             bridge_info_soup = bridge_info_soup_de
         try:
             bridge_info = get_bridge_info(bridge_info_soup)
-            cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
-            replaced_bridge_info = replace_keys_in_dict(cleaned_bridge_info, key_mapping)
+            replaced_bridge_info = deal_with_value(bridge_info, key_mapping)
 
             logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
             print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
@@ -666,6 +664,68 @@ def get_bridge_info(soup):
     return bridge_info
 
 
+def deal_with_value(bridge_info, key_mapping):
+    cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
+    replaced_bridge_info = replace_keys_in_dict(cleaned_bridge_info, key_mapping)
+
+    if "Baubeginn" in replaced_bridge_info:
+        construction_start = replaced_bridge_info["Baubeginn"]
+        year_start, month_start, day_start = parse_date(construction_start)
+        if year_start is not None:
+            replaced_bridge_info['Jahr_beginn'] = year_start
+        if month_start is not None:
+            replaced_bridge_info['Monat_beginn'] = month_start
+        if day_start is not None:
+            replaced_bridge_info['Tag_beginn'] = day_start
+
+    if "Fertigstellung" in replaced_bridge_info:
+        completion = replaced_bridge_info["Fertigstellung"]
+        year_end, month_end, day_end = parse_date(completion)
+        if year_end is not None:
+            replaced_bridge_info['Jahr_fertig'] = year_end
+        if month_end is not None:
+            replaced_bridge_info['Monat_fertig'] = month_end
+        if day_end is not None:
+            replaced_bridge_info['Tag_fertig'] = day_end
+
+    if "Lage" in replaced_bridge_info:
+        lage = replaced_bridge_info["Lage"]
+
+        for location in lage:
+            cities, counties, states, countries, part_countries = parse_location(location)
+            for city in cities:
+                if "Stadt" not in replaced_bridge_info:
+                    replaced_bridge_info['Stadt'] = city
+                else:
+                    replaced_bridge_info['Stadt'] = replaced_bridge_info['Stadt'] + "," + city
+            if counties.count != 0:
+                for county in counties:
+                    if "Landkreis" not in replaced_bridge_info:
+                        replaced_bridge_info['Landkreis'] = county
+                    else:
+                        replaced_bridge_info['Landkreis'] = replaced_bridge_info['Landkreis'] + "," + county
+            if states.count != 0:
+                for state in states:
+                    if "Staat" not in replaced_bridge_info:
+                        replaced_bridge_info['Staat'] = state
+                    else:
+                        replaced_bridge_info['Staat'] = replaced_bridge_info['Staat'] + "," + state
+            if part_countries.count != 0:
+                for part_country in part_countries:
+                    if "Land_teil" not in replaced_bridge_info:
+                        replaced_bridge_info['Land_teil'] = part_country
+                    else:
+                        replaced_bridge_info['Land_teil'] = replaced_bridge_info['Land_teil'] + "," + part_country
+            if countries.count != 0:
+                for country in countries:
+                    if "Land" not in replaced_bridge_info:
+                        replaced_bridge_info['Land'] = country
+                    else:
+                        replaced_bridge_info['Land'] = replaced_bridge_info['Land'] + "," + country
+
+    return replaced_bridge_info
+
+
 def replace_keys_in_dict(original_dict, key_mapping):
     """
         Replaces keys in a dictionary based on a provided mapping.
@@ -693,6 +753,60 @@ def clean_value(value):
     if isinstance(value, str):
         return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(':', '').strip()
     return value
+
+
+def parse_date(date):
+    parts = re.split(r'\.|\s', date)
+    parts = [part for part in parts if part.strip()]
+    parts = parts[::-1]
+    year = parts[0] if len(parts) > 0 else None
+    month = parts[1] if len(parts) > 1 else None
+    day = parts[2] if len(parts) > 2 else None
+
+    return year, month, day
+
+
+def parse_location(location):
+    cities = []
+    counties = []
+    states = []
+    countries = []
+    part_countries = []
+
+    matches = re.findall(r'([A-Z][a-z]+(?:\s[a-zA-Z]+)*|[A-Z]+)', location)
+
+    if matches:
+        for match in matches:
+            if match != "USA" and match not in cities and match not in counties and match not in states and match not in countries:
+                if match.isupper():  # 如果是大写字母组成的字符串，可以视为国家名称
+                    countries.append(match)
+                else:  # 否则可以视为城市、县或州名称
+                    cities.append(match)
+
+    # 使用逗号分割地址层级
+    address_levels = location.split(', ')
+
+    for level in address_levels:
+        # 如果包含 "Großbritannien"，则添加 "part_country"，并处理其他地址
+        if "Großbritannien" in level:
+            part_countries.append(level)
+            level = level.replace("Großbritannien", "United Kingdom")
+
+        # 使用正则表达式来匹配大写字母开头的单词和"USA"
+        matches = re.findall(r'([A-Z][a-z]+(?:\s[a-zA-Z]+)*|[A-Z]+)', level)
+
+        if matches:
+            for match in matches:
+                if match != "USA" and match not in cities and match not in counties and match not in states and match not in countries:
+                    if match.isupper():  # 如果是大写字母组成的字符串，可以视为国家名称
+                        if "United Kingdom" in level:
+                            part_countries.append(match)
+                        else:
+                            countries.append(match)
+                    else:  # 否则可以视为城市、县或州名称
+                        cities.append(match)
+
+    return cities, counties, states, countries, part_countries
 
 
 def get_existing_columns(file_path):
@@ -889,6 +1003,7 @@ def log_runtime(func):
         Returns:
             Wrapper function that logs the runtime.
         """
+
     def wrapper(*args, **kwargs):
         start_time = time.time()
         result = func(*args, **kwargs)
