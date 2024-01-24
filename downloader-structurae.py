@@ -665,6 +665,14 @@ def get_bridge_info(soup):
 
 
 def deal_with_value(bridge_info, key_mapping):
+    """
+        Data cleansing for specific parts of the source data.
+        Args:
+            bridge_info: The original dictionary with keys to be cleaned.
+            key_mapping: Dictionary mapping old keys to new keys.
+        Returns:
+            New dictionary with cleaned data as per the mapping.
+        """
     cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
     replaced_bridge_info = replace_keys_in_dict(cleaned_bridge_info, key_mapping)
 
@@ -756,6 +764,13 @@ def clean_value(value):
 
 
 def parse_date(date):
+    """
+        Data cleansing and segmentation for date segments.
+        Args:
+            date: The value to be cleaned.
+        Returns:
+            Cleaned value as a string.
+        """
     parts = re.split(r'\.|\s', date)
     parts = [part for part in parts if part.strip()]
     parts = parts[::-1]
@@ -771,6 +786,13 @@ def parse_date(date):
 
 
 def parse_location(location):
+    """
+        Data cleansing and segmentation for location segments.
+        Args:
+            location: The value to be cleaned.
+        Returns:
+            Cleaned value as a string.
+        """
     cities = []
     counties = []
     states = []
@@ -778,8 +800,6 @@ def parse_location(location):
     part_countries = []
 
     matches = re.findall(r'([A-Z][a-z]+(?:\s[a-zA-Z]+)*|[A-Z]+)', location)
-    print(location)
-    print(matches)
     if "Großbritannien" in matches:
         if matches:
             if len(matches) > 5:
