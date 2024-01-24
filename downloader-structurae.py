@@ -691,37 +691,36 @@ def deal_with_value(bridge_info, key_mapping):
     if "Lage" in replaced_bridge_info:
         lage = replaced_bridge_info["Lage"]
 
-        for location in lage:
-            cities, counties, states, countries, part_countries = parse_location(location)
-            for city in cities:
-                if "Stadt" not in replaced_bridge_info:
-                    replaced_bridge_info['Stadt'] = city
+        cities, counties, states, countries, part_countries = parse_location(lage)
+        for city in cities:
+            if "Stadt" not in replaced_bridge_info:
+                replaced_bridge_info['Stadt'] = city
+            else:
+                replaced_bridge_info['Stadt'] = replaced_bridge_info['Stadt'] + "," + city
+        if counties.count != 0:
+            for county in counties:
+                if "Landkreis" not in replaced_bridge_info:
+                    replaced_bridge_info['Landkreis'] = county
                 else:
-                    replaced_bridge_info['Stadt'] = replaced_bridge_info['Stadt'] + "," + city
-            if counties.count != 0:
-                for county in counties:
-                    if "Landkreis" not in replaced_bridge_info:
-                        replaced_bridge_info['Landkreis'] = county
-                    else:
-                        replaced_bridge_info['Landkreis'] = replaced_bridge_info['Landkreis'] + "," + county
-            if states.count != 0:
-                for state in states:
-                    if "Staat" not in replaced_bridge_info:
-                        replaced_bridge_info['Staat'] = state
-                    else:
-                        replaced_bridge_info['Staat'] = replaced_bridge_info['Staat'] + "," + state
-            if part_countries.count != 0:
-                for part_country in part_countries:
-                    if "Land_teil" not in replaced_bridge_info:
-                        replaced_bridge_info['Land_teil'] = part_country
-                    else:
-                        replaced_bridge_info['Land_teil'] = replaced_bridge_info['Land_teil'] + "," + part_country
-            if countries.count != 0:
-                for country in countries:
-                    if "Land" not in replaced_bridge_info:
-                        replaced_bridge_info['Land'] = country
-                    else:
-                        replaced_bridge_info['Land'] = replaced_bridge_info['Land'] + "," + country
+                    replaced_bridge_info['Landkreis'] = replaced_bridge_info['Landkreis'] + "," + county
+        if states.count != 0:
+            for state in states:
+                if "Staat" not in replaced_bridge_info:
+                    replaced_bridge_info['Staat'] = state
+                else:
+                    replaced_bridge_info['Staat'] = replaced_bridge_info['Staat'] + "," + state
+        if part_countries.count != 0:
+            for part_country in part_countries:
+                if "Land_teil" not in replaced_bridge_info:
+                    replaced_bridge_info['Land_teil'] = part_country
+                else:
+                    replaced_bridge_info['Land_teil'] = replaced_bridge_info['Land_teil'] + "," + part_country
+        if countries.count != 0:
+            for country in countries:
+                if "Land" not in replaced_bridge_info:
+                    replaced_bridge_info['Land'] = country
+                else:
+                    replaced_bridge_info['Land'] = replaced_bridge_info['Land'] + "," + country
 
     return replaced_bridge_info
 
@@ -751,7 +750,8 @@ def clean_value(value):
             Cleaned value as a string.
         """
     if isinstance(value, str):
-        return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(':', '').strip()
+        return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(':', '').replace('Ä', 'Ae')\
+            .replace('Ö', 'Oe').replace('Ü', 'Ue').strip()
     return value
 
 
@@ -762,6 +762,10 @@ def parse_date(date):
     year = parts[0] if len(parts) > 0 else None
     month = parts[1] if len(parts) > 1 else None
     day = parts[2] if len(parts) > 2 else None
+    if year == "Jahrhundert":
+        year = date
+        month = None
+        day = None
 
     return year, month, day
 
@@ -774,37 +778,80 @@ def parse_location(location):
     part_countries = []
 
     matches = re.findall(r'([A-Z][a-z]+(?:\s[a-zA-Z]+)*|[A-Z]+)', location)
-
-    if matches:
-        for match in matches:
-            if match != "USA" and match not in cities and match not in counties and match not in states and match not in countries:
-                if match.isupper():  # 如果是大写字母组成的字符串，可以视为国家名称
-                    countries.append(match)
-                else:  # 否则可以视为城市、县或州名称
-                    cities.append(match)
-
-    # 使用逗号分割地址层级
-    address_levels = location.split(', ')
-
-    for level in address_levels:
-        # 如果包含 "Großbritannien"，则添加 "part_country"，并处理其他地址
-        if "Großbritannien" in level:
-            part_countries.append(level)
-            level = level.replace("Großbritannien", "United Kingdom")
-
-        # 使用正则表达式来匹配大写字母开头的单词和"USA"
-        matches = re.findall(r'([A-Z][a-z]+(?:\s[a-zA-Z]+)*|[A-Z]+)', level)
-
+    print(location)
+    print(matches)
+    if "Großbritannien" in matches:
         if matches:
-            for match in matches:
-                if match != "USA" and match not in cities and match not in counties and match not in states and match not in countries:
-                    if match.isupper():  # 如果是大写字母组成的字符串，可以视为国家名称
-                        if "United Kingdom" in level:
-                            part_countries.append(match)
-                        else:
-                            countries.append(match)
-                    else:  # 否则可以视为城市、县或州名称
-                        cities.append(match)
+            if len(matches) > 5:
+                cities.append(matches[0])
+                cities.append(matches[5])
+                counties.append(matches[1])
+                counties.append(matches[6])
+                states.append(matches[2])
+                states.append(matches[7])
+                part_countries.append(matches[3])
+                part_countries.append(matches[8])
+                countries.append(matches[4])
+                countries.append(matches[9])
+            else:
+                cities.append(matches[0])
+                counties.append(matches[1])
+                states.append(matches[2])
+                part_countries = matches[3]
+                countries.append(matches[4])
+    else:
+        if matches:
+            if len(matches) == 12:
+                cities.append(matches[0])
+                cities.append(matches[4])
+                cities.append(matches[8])
+                counties.append(matches[1])
+                counties.append(matches[5])
+                counties.append(matches[9])
+                states.append(matches[2])
+                states.append(matches[6])
+                states.append(matches[10])
+                countries.append(matches[3])
+                countries.append(matches[7])
+                countries.append(matches[11])
+            elif len(matches) == 9:
+                cities.append(matches[0])
+                cities.append(matches[3])
+                cities.append(matches[6])
+                states.append(matches[1])
+                states.append(matches[4])
+                states.append(matches[7])
+                countries.append(matches[2])
+                countries.append(matches[5])
+                countries.append(matches[8])
+            elif len(matches) == 8:
+                cities.append(matches[0])
+                cities.append(matches[4])
+                counties.append(matches[1])
+                counties.append(matches[5])
+                states.append(matches[2])
+                states.append(matches[6])
+                countries.append(matches[3])
+                countries.append(matches[7])
+            elif len(matches) == 6:
+                cities.append(matches[0])
+                cities.append(matches[3])
+                states.append(matches[1])
+                states.append(matches[4])
+                countries.append(matches[2])
+                countries.append(matches[5])
+            elif len(matches) == 4:
+                cities.append(matches[0])
+                counties.append(matches[1])
+                states.append(matches[2])
+                countries.append(matches[3])
+            elif len(matches) == 3:
+                cities.append(matches[0])
+                states.append(matches[1])
+                countries.append(matches[2])
+            else:
+                cities.append(matches[0])
+                countries.append(matches[1])
 
     return cities, counties, states, countries, part_countries
 
