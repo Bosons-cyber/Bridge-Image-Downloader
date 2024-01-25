@@ -759,7 +759,7 @@ def clean_value(value):
         """
     if isinstance(value, str):
         return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(':', '').replace('Ä', 'Ae')\
-            .replace('Ö', 'Oe').replace('Ü', 'Ue').strip()
+            .replace('Ö', 'Oe').replace('Ü', 'Ue').replace('ä', 'ae').replace('ü', 'ue').replace('ö', 'oe').replace('ß', 'ss').strip()
     return value
 
 
@@ -785,14 +785,15 @@ def parse_date(date):
     return year, month, day
 
 
+"""
 def parse_location(location):
-    """
+
         Data cleansing and segmentation for location segments.
         Args:
             location: The value to be cleaned.
         Returns:
             Cleaned value as a string.
-        """
+
     cities = []
     counties = []
     states = []
@@ -800,7 +801,7 @@ def parse_location(location):
     part_countries = []
 
     matches = re.findall(r'([A-Z][a-z]+(?:\s[a-zA-Z]+)*|[A-Z]+)', location)
-    if "Großbritannien" in matches:
+    if "Grossbritannien" in matches:
         if matches:
             if len(matches) > 5:
                 cities.append(matches[0])
@@ -874,7 +875,7 @@ def parse_location(location):
                 countries.append(matches[1])
 
     return cities, counties, states, countries, part_countries
-
+"""
 
 def get_existing_columns(file_path):
     """
