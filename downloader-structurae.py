@@ -246,6 +246,7 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
             key_mapping: Mapping of keys for data extraction.
         """
     problematic_bridges = []
+    more_address_bridges = []
     session = Session()
 
     for bridge_name_to_download in bridge_names:
@@ -281,7 +282,10 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
                 logging.error(f"Error processing bridge info: {e}")
                 continue
 
-            replaced_bridge_info = deal_with_value(bridge_info, key_mapping)
+            replaced_bridge_info, more_address_bridge = deal_with_value(bridge_info, key_mapping)
+
+            if more_address_bridge:
+                more_address_bridges.append(bridge_name_to_download)
 
             bridge_folder = create_unique_bridge_folder_from_url(bridge_url_de)
 
@@ -313,8 +317,16 @@ def download_images_by_bridge_name(driver, bridge_names, base_url, key_mapping):
             logging.error(f"An error occurred while processing {bridge_name_to_download}: {e}")
             problematic_bridges.append(bridge_name_to_download)
 
-    print(f"Problematic bridges : {problematic_bridges}")
-    logging.info(f"Problematic bridges : {problematic_bridges}")
+    if len(more_address_bridges) > 0:
+        logging.info(f"More address bridges: {more_address_bridges}")
+        print(f"More address bridges: {more_address_bridges}")
+
+    if len(problematic_bridges) > 0:
+        print(f"Problematic bridges : {problematic_bridges}")
+        logging.info(f"Problematic bridges : {problematic_bridges}")
+
+    logging.info("All bridges processed!")
+    print("All bridges processed!")
 
     session.close()
 
@@ -338,6 +350,7 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
         return
 
     all_bridge_urls = []
+    more_address_bridges = []
     page = 0
     existing_bridges = set()
 
@@ -398,7 +411,10 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
             bridge_info_soup = bridge_info_soup_de
         try:
             bridge_info = get_bridge_info(bridge_info_soup)
-            replaced_bridge_info = deal_with_value(bridge_info, key_mapping)
+            replaced_bridge_info, more_address_bridge = deal_with_value(bridge_info, key_mapping)
+
+            if more_address_bridge:
+                more_address_bridges.append(get_unique_bridge_name_from_url(bridge_url_de))
 
             logging.info(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
             print(f"Processing bridge {downloaded_count + 1} of {num_bridges}...")
@@ -437,6 +453,10 @@ def download_images_by_bridge_type(driver, bridge_type, num_bridges, base_url, k
         downloaded_count += 1
         if downloaded_count >= num_bridges:
             break
+
+    if len(more_address_bridges) > 0:
+        logging.info(f"More address bridges: {more_address_bridges}")
+        print(f"More address bridges: {more_address_bridges}")
 
     logging.info("All bridges processed!")
     print("All bridges processed!")
@@ -673,6 +693,8 @@ def deal_with_value(bridge_info, key_mapping):
         Returns:
             New dictionary with cleaned data as per the mapping.
         """
+    more_address = False
+
     cleaned_bridge_info = {clean_value(key): clean_value(value) for key, value in bridge_info.items()}
     replaced_bridge_info = replace_keys_in_dict(cleaned_bridge_info, key_mapping)
 
@@ -699,38 +721,14 @@ def deal_with_value(bridge_info, key_mapping):
     if "Lage" in replaced_bridge_info:
         lage = replaced_bridge_info["Lage"]
 
-        cities, counties, states, countries, part_countries = parse_location(lage)
-        for city in cities:
-            if "Stadt" not in replaced_bridge_info:
-                replaced_bridge_info['Stadt'] = city
-            else:
-                replaced_bridge_info['Stadt'] = replaced_bridge_info['Stadt'] + "," + city
-        if counties.count != 0:
-            for county in counties:
-                if "Landkreis" not in replaced_bridge_info:
-                    replaced_bridge_info['Landkreis'] = county
-                else:
-                    replaced_bridge_info['Landkreis'] = replaced_bridge_info['Landkreis'] + "," + county
-        if states.count != 0:
-            for state in states:
-                if "Staat" not in replaced_bridge_info:
-                    replaced_bridge_info['Staat'] = state
-                else:
-                    replaced_bridge_info['Staat'] = replaced_bridge_info['Staat'] + "," + state
-        if part_countries.count != 0:
-            for part_country in part_countries:
-                if "Land_teil" not in replaced_bridge_info:
-                    replaced_bridge_info['Land_teil'] = part_country
-                else:
-                    replaced_bridge_info['Land_teil'] = replaced_bridge_info['Land_teil'] + "," + part_country
-        if countries.count != 0:
-            for country in countries:
-                if "Land" not in replaced_bridge_info:
-                    replaced_bridge_info['Land'] = country
-                else:
-                    replaced_bridge_info['Land'] = replaced_bridge_info['Land'] + "," + country
+        city, region3, region2, region1, country, more_address = parse_location(lage)
+        replaced_bridge_info['Stadt'] = city
+        replaced_bridge_info['Region3'] = region3
+        replaced_bridge_info['Region2'] = region2
+        replaced_bridge_info['Region1'] = region1
+        replaced_bridge_info['Land'] = country
 
-    return replaced_bridge_info
+    return replaced_bridge_info, more_address
 
 
 def replace_keys_in_dict(original_dict, key_mapping):
@@ -758,8 +756,9 @@ def clean_value(value):
             Cleaned value as a string.
         """
     if isinstance(value, str):
-        return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(':', '').replace('Ä', 'Ae')\
-            .replace('Ö', 'Oe').replace('Ü', 'Ue').replace('ä', 'ae').replace('ü', 'ue').replace('ö', 'oe').replace('ß', 'ss').strip()
+        return value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(':', '').replace('Ä', 'Ae') \
+            .replace('Ö', 'Oe').replace('Ü', 'Ue').replace('ä', 'ae').replace('ü', 'ue').replace('ö', 'oe').replace('ß',
+                                                                                                                    'ss').strip()
     return value
 
 
@@ -769,7 +768,7 @@ def parse_date(date):
         Args:
             date: The value to be cleaned.
         Returns:
-            Cleaned value as a string.
+            Cleaned value as strings.
         """
     parts = re.split(r'\.|\s', date)
     parts = [part for part in parts if part.strip()]
@@ -785,97 +784,47 @@ def parse_date(date):
     return year, month, day
 
 
-"""
 def parse_location(location):
+    """
+    Data cleansing and segmentation for location segments.
+    Args:
+        location: The value to be cleaned.
+    Returns:
+        Cleaned value as strings.
+        """
 
-        Data cleansing and segmentation for location segments.
-        Args:
-            location: The value to be cleaned.
-        Returns:
-            Cleaned value as a string.
+    city = ""
+    region3 = ""
+    region2 = ""
+    region1 = ""
+    country = ""
+    more_address = False
 
-    cities = []
-    counties = []
-    states = []
-    countries = []
-    part_countries = []
+    parts = location.split(', ')
+    if parts:
+        if len(parts) > 5:
+            more_address = True
+        if len(parts) == 5:
+            city = parts[0]
+            region3 = parts[1]
+            region2 = parts[2]
+            region1 = parts[3]
+            country = parts[4]
+        if len(parts) == 4:
+            city = parts[0]
+            region3 = parts[1]
+            region2 = parts[2]
+            country = parts[3]
+        elif len(parts) == 3:
+            city = parts[0]
+            region3 = parts[1]
+            country = parts[2]
+        else:
+            city = parts[0]
+            country = parts[1]
 
-    matches = re.findall(r'([A-Z][a-z]+(?:\s[a-zA-Z]+)*|[A-Z]+)', location)
-    if "Grossbritannien" in matches:
-        if matches:
-            if len(matches) > 5:
-                cities.append(matches[0])
-                cities.append(matches[5])
-                counties.append(matches[1])
-                counties.append(matches[6])
-                states.append(matches[2])
-                states.append(matches[7])
-                part_countries.append(matches[3])
-                part_countries.append(matches[8])
-                countries.append(matches[4])
-                countries.append(matches[9])
-            else:
-                cities.append(matches[0])
-                counties.append(matches[1])
-                states.append(matches[2])
-                part_countries = matches[3]
-                countries.append(matches[4])
-    else:
-        if matches:
-            if len(matches) == 12:
-                cities.append(matches[0])
-                cities.append(matches[4])
-                cities.append(matches[8])
-                counties.append(matches[1])
-                counties.append(matches[5])
-                counties.append(matches[9])
-                states.append(matches[2])
-                states.append(matches[6])
-                states.append(matches[10])
-                countries.append(matches[3])
-                countries.append(matches[7])
-                countries.append(matches[11])
-            elif len(matches) == 9:
-                cities.append(matches[0])
-                cities.append(matches[3])
-                cities.append(matches[6])
-                states.append(matches[1])
-                states.append(matches[4])
-                states.append(matches[7])
-                countries.append(matches[2])
-                countries.append(matches[5])
-                countries.append(matches[8])
-            elif len(matches) == 8:
-                cities.append(matches[0])
-                cities.append(matches[4])
-                counties.append(matches[1])
-                counties.append(matches[5])
-                states.append(matches[2])
-                states.append(matches[6])
-                countries.append(matches[3])
-                countries.append(matches[7])
-            elif len(matches) == 6:
-                cities.append(matches[0])
-                cities.append(matches[3])
-                states.append(matches[1])
-                states.append(matches[4])
-                countries.append(matches[2])
-                countries.append(matches[5])
-            elif len(matches) == 4:
-                cities.append(matches[0])
-                counties.append(matches[1])
-                states.append(matches[2])
-                countries.append(matches[3])
-            elif len(matches) == 3:
-                cities.append(matches[0])
-                states.append(matches[1])
-                countries.append(matches[2])
-            else:
-                cities.append(matches[0])
-                countries.append(matches[1])
+    return city, region3, region2, region1, country, more_address
 
-    return cities, counties, states, countries, part_countries
-"""
 
 def get_existing_columns(file_path):
     """
